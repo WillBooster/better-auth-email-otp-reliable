@@ -145,9 +145,10 @@ async function resolveOtp(
   for (let pass = 0; ; pass++) {
     if (await ctx.context.internalAdapter.reserveVerificationValue(row)) return otp;
 
-    // Rows are told apart by id: the value changes whenever a failed attempt is counted.
+    // The reservation ID is deterministic for an identifier, so compare the value as well to
+    // distinguish a row replaced since the previous lookup.
     const current = await ctx.context.internalAdapter.findVerificationValue(identifier);
-    if (current && current.id !== seen?.id) {
+    if (current && (current.id !== seen?.id || current.value !== seen?.value)) {
       const concurrent = await reusePendingOtp(ctx, options, identifier, current);
       if (concurrent) return concurrent;
     }

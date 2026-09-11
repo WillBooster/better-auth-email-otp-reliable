@@ -110,7 +110,7 @@ const createStorage = () => ({
 });
 
 // oxlint-disable-next-line typescript/explicit-function-return-type -- keep Better Auth's plugin endpoint inference in the test.
-const createAuth = () =>
+const createAuth = (resendStrategy: 'reuse' | 'rotate' = 'reuse') =>
   betterAuth({
     database: drizzleAdapter(database, { provider: 'sqlite', schema: { user, account, session, verification } }),
     baseURL: 'http://localhost:3000',
@@ -121,7 +121,7 @@ const createAuth = () =>
         expiresIn: 60,
         allowedAttempts: 5,
         storeOTP: createStorage(),
-        resendStrategy: 'reuse',
+        resendStrategy,
         sendVerificationOTP,
       }),
     ],
@@ -137,6 +137,30 @@ describe('reliableEmailOTP with a real SQLite adapter', () => {
     sendVerificationOTP.mockResolvedValue();
     const auth = createAuth();
     const email = 'concurrent@example.com';
+
+    await Promise.all([
+      auth.api.sendVerificationOTP({ body: { email, type: 'sign-in' } }),
+      auth.api.sendVerificationOTP({ body: { email, type: 'sign-in' } }),
+    ]);
+
+    expect(sendVerificationOTP.mock.calls).toHaveLength(2);
+    const firstOtp = sendVerificationOTP.mock.calls[0]?.[0].otp;
+    const secondOtp = sendVerificationOTP.mock.calls[1]?.[0].otp;
+    expect(firstOtp).toBeDefined();
+    expect(secondOtp).toBe(firstOtp);
+    await expect(auth.api.signInEmailOTP({ body: { email, otp: firstOtp! } })).resolves.toMatchObject({
+      user: { email },
+    });
+  });
+
+  test('delivers one usable code for concurrent replacement requests', async () => {
+    sendVerificationOTP.mockResolvedValue();
+    const auth = createAuth();
+    const email = 'replacement@example.com';
+
+    await auth.api.sendVerificationOTP({ body: { email, type: 'sign-in' } });
+    await auth.api.signInEmailOTP({ body: { email, otp: '00000000' } }).catch(() => {});
+    sendVerificationOTP.mockClear();
 
     await Promise.all([
       auth.api.sendVerificationOTP({ body: { email, type: 'sign-in' } }),
