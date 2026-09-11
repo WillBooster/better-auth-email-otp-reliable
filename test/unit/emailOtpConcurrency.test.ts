@@ -1,5 +1,6 @@
-import { betterAuth } from 'better-auth';
+import { type BetterAuthOptions, betterAuth } from 'better-auth';
 import { drizzleAdapter } from 'better-auth/adapters/drizzle';
+import { emailOTP } from 'better-auth/plugins';
 import Database from 'better-sqlite3';
 import { drizzle } from 'drizzle-orm/better-sqlite3';
 import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core';
@@ -109,15 +110,20 @@ const createStorage = () => ({
   decrypt: async (value: string): Promise<string> => value,
 });
 
-// oxlint-disable-next-line typescript/explicit-function-return-type -- keep Better Auth's plugin endpoint inference in the test.
-const createAuth = (options: Partial<EmailOtpPluginOptions> = {}) =>
+const createAuth = (
+  options: Partial<EmailOtpPluginOptions> = {},
+  databaseHooks?: BetterAuthOptions['databaseHooks'],
+  useUpstream = false
+  // oxlint-disable-next-line typescript/explicit-function-return-type -- keep Better Auth's plugin endpoint inference in the test.
+) =>
   betterAuth({
+    databaseHooks,
     database: drizzleAdapter(database, { provider: 'sqlite', schema: { user, account, session, verification } }),
     baseURL: 'http://localhost:3000',
     secret: SECRET,
     advanced: { database: { generateId: 'serial' } },
     plugins: [
-      reliableEmailOTP({
+      (useUpstream ? emailOTP : reliableEmailOTP)({
         otpLength: 8,
         expiresIn: 60,
         allowedAttempts: 5,
@@ -135,25 +141,60 @@ afterEach(() => {
 });
 
 describe('reliableEmailOTP with a real SQLite adapter', () => {
-  test('delivers one usable code for concurrent first requests', async () => {
+  test('reuses a pending code issued by the upstream plugin before migration', async () => {
     sendVerificationOTP.mockResolvedValue();
+    const email = 'migration@example.com';
+    const legacy = createAuth({}, undefined, true);
+    const otp = await legacy.api.createVerificationOTP({ body: { email, type: 'sign-in' } });
     const auth = createAuth();
-    const email = 'concurrent@example.com';
-
-    await Promise.all([
-      auth.api.sendVerificationOTP({ body: { email, type: 'sign-in' } }),
-      createAuth().api.sendVerificationOTP({ body: { email, type: 'sign-in' } }),
-    ]);
-
-    expect(sendVerificationOTP.mock.calls).toHaveLength(2);
-    const firstOtp = sendVerificationOTP.mock.calls[0]?.[0].otp;
-    const secondOtp = sendVerificationOTP.mock.calls[1]?.[0].otp;
-    expect(firstOtp).toBeDefined();
-    expect(secondOtp).toBe(firstOtp);
-    await expect(auth.api.signInEmailOTP({ body: { email, otp: firstOtp! } })).resolves.toMatchObject({
-      user: { email },
-    });
+    await auth.api.sendVerificationOTP({ body: { email, type: 'sign-in' } });
+    expect(sendVerificationOTP.mock.calls[0]![0].otp).toBe(otp);
+    await expect(auth.api.signInEmailOTP({ body: { email, otp } })).resolves.toMatchObject({ user: { email } });
   });
+
+  test('propagates verification creation hook failures without delivering a code', async () => {
+    sendVerificationOTP.mockResolvedValue();
+    const failure = new Error('Audit unavailable');
+    const auth = createAuth(
+      {},
+      {
+        verification: {
+          create: {
+            after: async () => {
+              throw failure;
+            },
+          },
+        },
+      }
+    );
+    await expect(auth.api.sendVerificationOTP({ body: { email: 'hook@example.com', type: 'sign-in' } })).rejects.toBe(
+      failure
+    );
+    expect(sendVerificationOTP).not.toHaveBeenCalled();
+  });
+
+  test.each([undefined, () => '12345678'])(
+    'delivers one usable code for concurrent first requests (%s)',
+    async (generateOTP) => {
+      sendVerificationOTP.mockResolvedValue();
+      const auth = createAuth({ generateOTP });
+      const email = 'concurrent@example.com';
+
+      await Promise.all([
+        auth.api.sendVerificationOTP({ body: { email, type: 'sign-in' } }),
+        createAuth({ generateOTP }).api.sendVerificationOTP({ body: { email, type: 'sign-in' } }),
+      ]);
+
+      expect(sendVerificationOTP.mock.calls).toHaveLength(2);
+      const firstOtp = sendVerificationOTP.mock.calls[0]?.[0].otp;
+      const secondOtp = sendVerificationOTP.mock.calls[1]?.[0].otp;
+      expect(firstOtp).toBeDefined();
+      expect(secondOtp).toBe(firstOtp);
+      await expect(auth.api.signInEmailOTP({ body: { email, otp: firstOtp! } })).resolves.toMatchObject({
+        user: { email },
+      });
+    }
+  );
 
   test.each(['expired', 'exhausted', 'rotate', 'undecryptable'] as const)(
     'delivers one usable code for concurrent replacement of an %s code',

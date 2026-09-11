@@ -29,6 +29,9 @@ export interface EmailOtpPluginOptions extends Pick<
 /** Raised when the verification email could not be handed to the mail provider. */
 export const FAILED_TO_SEND_EMAIL = 'FAILED_TO_SEND_EMAIL';
 
+const STORAGE_PREFIX = 'reliable-email-otp:v1:';
+const storedOtpSchema = z.tuple([z.string(), z.string()]);
+
 const sendVerificationOtpBodySchema = z.object({
   email: z.string().meta({ description: 'Email address to send the OTP' }),
   type: z.literal('sign-in').meta({ description: 'Type of the OTP' }),
@@ -70,17 +73,7 @@ export function reliableEmailOTP(options: EmailOtpPluginOptions): EmailOtpPlugin
   const resolved = {
     ...options,
     resendStrategy: options.resendStrategy ?? 'reuse',
-    storeOTP: {
-      encrypt: (otp: string) => options.storeOTP.encrypt(otp),
-      async decrypt(value: string): Promise<string> {
-        try {
-          return await options.storeOTP.decrypt(value);
-        } catch {
-          // Pending codes from a previous encryption key must fail closed and be replaceable.
-          return '';
-        }
-      },
-    },
+    storeOTP: createOtpStorage(options.storeOTP),
     disableSignUp: false,
     overrideDefaultEmailVerification: false,
     sendVerificationOnSignUp: false,
@@ -99,6 +92,26 @@ export function reliableEmailOTP(options: EmailOtpPluginOptions): EmailOtpPlugin
     },
     endpoints: { ...base.endpoints, sendVerificationOTP: createSendVerificationOtpEndpoint(resolved) },
     hooks: { ...base.hooks, before: [createOtpShapeGuard(options.otpLength, !!options.generateOTP)] },
+  };
+}
+
+function createOtpStorage(storage: OtpStorage): OtpStorage {
+  return {
+    async encrypt(otp) {
+      // Distinguish this insertion from a competitor even when both generate a fixed code.
+      return `${STORAGE_PREFIX}${JSON.stringify([crypto.randomUUID(), await storage.encrypt(otp)])}`;
+    },
+    async decrypt(value) {
+      try {
+        const ciphertext = value.startsWith(STORAGE_PREFIX)
+          ? storedOtpSchema.parse(JSON.parse(value.slice(STORAGE_PREFIX.length)))[1]
+          : value;
+        return await storage.decrypt(ciphertext);
+      } catch {
+        // Pending codes from a previous encryption key must fail closed and be replaceable.
+        return '';
+      }
+    },
   };
 }
 
@@ -184,6 +197,8 @@ async function resolveOtp(
       // Reconcile only when a row actually exists, and preserve the original error.
       const current = await ctx.context.internalAdapter.findVerificationValue(identifier);
       if (!current) throw error;
+      // A committed insertion followed by a failing create.after hook is not a conflict.
+      if (current.value === row.value) throw error;
       if (options.resendStrategy === 'reuse' || current.id !== seen?.id || current.value !== seen?.value) {
         const concurrent = await reusePendingOtp(ctx, options, current);
         if (concurrent) return concurrent;

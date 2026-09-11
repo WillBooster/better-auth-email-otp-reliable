@@ -46,7 +46,10 @@ export const auth = betterAuth({
 `database`, `secret`, and `sendMail` above are supplied by the application. The
 sender must return the delivery promise and reject on failure. Custom storage
 must encrypt codes in a recoverable format; decryption failures are treated as
-unusable codes. Empty submissions are rejected before verification. Supply
+unusable codes. Stored ciphertext is wrapped with a per-insertion random identifier
+so creation-hook failures can be distinguished from competing inserts, even with
+fixed codes. Existing unwrapped ciphertext remains readable. Empty submissions are
+rejected before verification. Supply
 `generateOTP` to use a custom nonempty code format, including fixed codes in local
 tests. Numeric options must be positive integers.
 
