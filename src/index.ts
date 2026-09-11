@@ -16,7 +16,10 @@ interface OtpStorage {
 // `disableSignUp` is excluded: the send endpoint below sends a code to every address alike, and
 // the option would only make the upstream `/sign-in/email-otp` reject an unknown address's code
 // instead of creating its account, which is how this app signs users up.
-export interface EmailOtpPluginOptions extends Omit<EmailOTPOptions, 'storeOTP' | 'disableSignUp'> {
+export interface EmailOtpPluginOptions extends Omit<
+  EmailOTPOptions,
+  'storeOTP' | 'disableSignUp' | 'overrideDefaultEmailVerification' | 'sendVerificationOnSignUp'
+> {
   otpLength: number;
   expiresIn: number;
   allowedAttempts: number;
@@ -51,7 +54,7 @@ export function reliableEmailOTP(options: EmailOtpPluginOptions) {
   return {
     ...base,
     endpoints: { ...base.endpoints, sendVerificationOTP: createSendVerificationOtpEndpoint(options) },
-    hooks: { ...base.hooks, before: [createOtpShapeGuard(options.otpLength)] },
+    hooks: { ...base.hooks, before: [createOtpShapeGuard(options.otpLength, !!options.generateOTP)] },
   };
 }
 
@@ -197,11 +200,18 @@ function toOtpIdentifier(type: OtpType, email: string): string {
 // the field rather than on a list of paths keeps every verifying endpoint covered, including ones
 // the app does not use itself.
 // oxlint-disable-next-line typescript/explicit-function-return-type -- typed by the plugin's inferred `hooks.before` element.
-function createOtpShapeGuard(otpLength: number) {
+function createOtpShapeGuard(otpLength: number, allowAnyFormat: boolean) {
   const otpBodySchema = z.object({ otp: z.string().length(otpLength).regex(/^\d+$/) });
   return {
-    matcher: (ctx: { body?: unknown }) => typeof ctx.body === 'object' && ctx.body !== null && 'otp' in ctx.body,
+    matcher: (ctx: { body?: unknown; path?: string }) =>
+      !!(
+        (ctx.path === '/sign-in/email-otp' || ctx.path?.startsWith('/email-otp/')) &&
+        typeof ctx.body === 'object' &&
+        ctx.body !== null &&
+        'otp' in ctx.body
+      ),
     handler: createAuthMiddleware(async (ctx) => {
+      if (allowAnyFormat) return;
       if (!otpBodySchema.safeParse(ctx.body).success) {
         throw new APIError('BAD_REQUEST', { code: 'INVALID_OTP', message: 'Invalid OTP' });
       }
