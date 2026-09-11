@@ -29,14 +29,26 @@ export interface EmailOtpPluginOptions extends Pick<
 /** Raised when the verification email could not be handed to the mail provider. */
 export const FAILED_TO_SEND_EMAIL = 'FAILED_TO_SEND_EMAIL';
 
-const OTP_TYPES = ['email-verification', 'sign-in', 'forget-password', 'change-email'] as const satisfies OtpType[];
-
 const sendVerificationOtpBodySchema = z.object({
   email: z.string().meta({ description: 'Email address to send the OTP' }),
-  type: z.enum(OTP_TYPES).meta({ description: 'Type of the OTP' }),
+  type: z.literal('sign-in').meta({ description: 'Type of the OTP' }),
 });
 
-type EmailOtpPlugin = ReturnType<typeof emailOTP> & {
+type BaseEmailOtpPlugin = ReturnType<typeof emailOTP>;
+type SendVerificationOtpEndpoint = ReturnType<
+  typeof createAuthEndpoint<
+    '/email-otp/send-verification-otp',
+    Omit<BaseEmailOtpPlugin['endpoints']['sendVerificationOTP']['options'], 'body'> & {
+      body: typeof sendVerificationOtpBodySchema;
+    },
+    { success: boolean }
+  >
+>;
+
+type EmailOtpPlugin = Omit<BaseEmailOtpPlugin, 'endpoints'> & {
+  endpoints: Omit<BaseEmailOtpPlugin['endpoints'], 'sendVerificationOTP'> & {
+    sendVerificationOTP: SendVerificationOtpEndpoint;
+  };
   hooks: {
     before: {
       matcher: (ctx: { body?: unknown; path?: string }) => boolean;
@@ -90,11 +102,8 @@ export function reliableEmailOTP(options: EmailOtpPluginOptions): EmailOtpPlugin
   };
 }
 
-// Mirrors the upstream `/email-otp/send-verification-otp` endpoint (path, body and OpenAPI
-// metadata, so that the client plugin and the rate-limit rules keep matching it), differing in how
-// the code is issued (`resolveOtp`) and in awaiting the send so that its failure can reach the client.
-// oxlint-disable-next-line typescript/explicit-function-return-type -- the endpoint type must stay inferred.
-function createSendVerificationOtpEndpoint(options: EmailOtpPluginOptions) {
+// Keep the upstream path so the client plugin and rate-limit rules continue to match.
+function createSendVerificationOtpEndpoint(options: EmailOtpPluginOptions): SendVerificationOtpEndpoint {
   return createAuthEndpoint(
     '/email-otp/send-verification-otp',
     {
@@ -123,13 +132,6 @@ function createSendVerificationOtpEndpoint(options: EmailOtpPluginOptions) {
       if (!z.email().safeParse(email).success) {
         throw new APIError('BAD_REQUEST', { code: 'INVALID_EMAIL', message: 'Invalid email' });
       }
-      // This plugin sends codes for signing in only. Upstream looks the account up first and answers
-      // success for an unknown address, which would turn a rejection here into an account-existence
-      // probe, so the type is settled before anything that depends on the address.
-      if (ctx.body.type !== 'sign-in') {
-        throw new APIError('BAD_REQUEST', { message: 'Invalid OTP type' });
-      }
-
       const otp = await resolveOtp(ctx, options, email, ctx.body.type);
 
       // Awaited directly: upstream routes this through a helper that swallows the error and reports
