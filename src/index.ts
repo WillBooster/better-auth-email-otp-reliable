@@ -138,7 +138,7 @@ async function resolveOtp(
 
   let seen = await ctx.context.internalAdapter.findVerificationValue(identifier);
   if (seen && options.resendStrategy === 'reuse') {
-    const reused = await reusePendingOtp(ctx, options, identifier, seen);
+    const reused = await reusePendingOtp(ctx, options, seen);
     if (reused) return reused;
   }
 
@@ -155,7 +155,7 @@ async function resolveOtp(
     // distinguish a row replaced since the previous lookup.
     const current = await ctx.context.internalAdapter.findVerificationValue(identifier);
     if (current && (current.id !== seen?.id || current.value !== seen?.value)) {
-      const concurrent = await reusePendingOtp(ctx, options, identifier, current);
+      const concurrent = await reusePendingOtp(ctx, options, current);
       if (concurrent) return concurrent;
     }
     if (pass >= 2) {
@@ -174,8 +174,7 @@ async function resolveOtp(
 async function reusePendingOtp(
   ctx: EndpointContext,
   options: EmailOtpPluginOptions,
-  identifier: string,
-  pending: { value: string; expiresAt: Date }
+  pending: { id: string; value: string; expiresAt: Date }
 ): Promise<string | undefined> {
   if (pending.expiresAt < new Date()) return undefined;
 
@@ -187,7 +186,15 @@ async function reusePendingOtp(
   const otp = await options.storeOTP.decrypt(storedOtp);
   if (!otp) return undefined;
 
-  await ctx.context.internalAdapter.updateVerificationByIdentifier(identifier, { expiresAt: expiresAt(options) });
+  const updated = await ctx.context.adapter.update({
+    model: 'verification',
+    update: { expiresAt: expiresAt(options) },
+    where: [
+      { field: 'id', value: pending.id },
+      { field: 'value', value: pending.value },
+    ],
+  });
+  if (!updated) return undefined;
   return otp;
 }
 
