@@ -160,7 +160,9 @@ describe('reliableEmailOTP with a real SQLite adapter', () => {
     async (reason) => {
       sendVerificationOTP.mockResolvedValue();
       let encryptionKey = 'old-key';
+      let nextOtp = 10_000_000;
       const auth = createAuth({
+        generateOTP: () => String(nextOtp++),
         resendStrategy: reason === 'rotate' ? 'rotate' : 'reuse',
         allowedAttempts: 1,
         storeOTP: {
