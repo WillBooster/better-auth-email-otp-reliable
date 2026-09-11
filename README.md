@@ -72,8 +72,10 @@ the winning row and reuse its code; replacement deletes only the observed row,
 matching its ID, value, and expiry. This coordinates independent application
 instances through the database without a process-local lock.
 
-Only recognized duplicate-key errors enter conflict recovery; other database and
-creation-hook errors propagate without deleting a pending code. Duplicate errors
+The adapter records verification insertion failures without changing the thrown
+errors. Only recognized duplicate-key errors from that insertion enter conflict
+recovery; other database and creation-hook errors propagate without deleting a
+pending code. Duplicate errors
 are recognized by SQLite/libSQL extended codes, Cloudflare D1's uniqueness error
 message, PostgreSQL SQLSTATE `23505`, MySQL `ER_DUP_ENTRY`/1062, or MongoDB 11000,
 including nested `cause` chains. Adapters with

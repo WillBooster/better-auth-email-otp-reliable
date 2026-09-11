@@ -67,6 +67,31 @@ afterEach(() => {
 });
 
 describe('reliableEmailOTP with a real SQLite adapter', () => {
+  test('propagates a duplicate-key failure from a creation hook without rotating the emailed code', async () => {
+    sendVerificationOTP.mockResolvedValue();
+    const email = 'duplicate-hook@example.com';
+    const auth = createAuth();
+    await auth.api.sendVerificationOTP({ body: { email, type: 'sign-in' } });
+    const otp = sendVerificationOTP.mock.calls[0]![0].otp;
+    const failingAuth = createAuth(
+      { resendStrategy: 'rotate' },
+      {
+        verification: {
+          create: {
+            before: async () => {
+              sqliteDatabase.prepare('INSERT INTO verification SELECT * FROM verification').run();
+            },
+          },
+        },
+      }
+    );
+    await expect(failingAuth.api.sendVerificationOTP({ body: { email, type: 'sign-in' } })).rejects.toMatchObject({
+      code: 'SQLITE_CONSTRAINT_PRIMARYKEY',
+    });
+    expect(sendVerificationOTP.mock.calls).toHaveLength(1);
+    await expect(auth.api.signInEmailOTP({ body: { email, otp } })).resolves.toMatchObject({ user: { email } });
+  });
+
   test('uses the default generator for upstream APIs when generateOTP is explicitly undefined', async () => {
     const auth = createAuth({ generateOTP: undefined });
     const email = 'default-generator@example.com';

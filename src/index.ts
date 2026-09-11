@@ -41,6 +41,8 @@ const sendVerificationOtpBodySchema = z.object({
 });
 
 type BaseEmailOtpPlugin = ReturnType<typeof emailOTP>;
+type PluginContext = Parameters<NonNullable<BaseEmailOtpPlugin['init']>>[0];
+type CreationFailures = WeakMap<object, string>;
 type SendVerificationOtpEndpoint = ReturnType<
   typeof createAuthEndpoint<
     '/email-otp/send-verification-otp',
@@ -51,7 +53,8 @@ type SendVerificationOtpEndpoint = ReturnType<
   >
 >;
 
-type EmailOtpPlugin = Omit<BaseEmailOtpPlugin, 'endpoints'> & {
+type EmailOtpPlugin = Omit<BaseEmailOtpPlugin, 'endpoints' | 'init'> & {
+  init: (ctx: PluginContext) => { context: Pick<PluginContext, 'adapter'> };
   $ERROR_CODES: BaseEmailOtpPlugin['$ERROR_CODES'] & { FAILED_TO_SEND_EMAIL: typeof deliveryError };
   endpoints: Omit<BaseEmailOtpPlugin['endpoints'], 'sendVerificationOTP'> & {
     sendVerificationOTP: SendVerificationOtpEndpoint;
@@ -75,6 +78,7 @@ export function reliableEmailOTP(options: EmailOtpPluginOptions): EmailOtpPlugin
     z.number().int().positive().parse(value);
   }
   const { generateOTP, ...otherOptions } = options;
+  const creationFailures: CreationFailures = new WeakMap();
   const resolved = {
     ...otherOptions,
     ...(generateOTP ? { generateOTP } : {}),
@@ -89,16 +93,40 @@ export function reliableEmailOTP(options: EmailOtpPluginOptions): EmailOtpPlugin
   return {
     ...base,
     $ERROR_CODES: { ...base.$ERROR_CODES, FAILED_TO_SEND_EMAIL: deliveryError },
-    init(ctx: Parameters<NonNullable<typeof base.init>>[0]) {
+    init(ctx: PluginContext) {
       if (ctx.options.secondaryStorage) {
         throw new Error(
           'reliableEmailOTP does not support secondaryStorage; verification must use the database directly'
         );
       }
-      return base.init?.(ctx);
+      return { context: { adapter: trackCreationFailures(ctx.adapter, creationFailures) } };
     },
-    endpoints: { ...base.endpoints, sendVerificationOTP: createSendVerificationOtpEndpoint(resolved) },
+    endpoints: {
+      ...base.endpoints,
+      sendVerificationOTP: createSendVerificationOtpEndpoint(resolved, creationFailures),
+    },
     hooks: { ...base.hooks, before: [createOtpShapeGuard(options.otpLength, !!options.generateOTP)] },
+  };
+}
+
+function trackCreationFailures(
+  adapter: PluginContext['adapter'],
+  failures: CreationFailures
+): PluginContext['adapter'] {
+  return {
+    ...adapter,
+    async create(args) {
+      try {
+        return await adapter.create(args);
+      } catch (error) {
+        // Hook errors may carry the same driver code; record only actual verification insert failures.
+        if (args.model === 'verification' && typeof error === 'object' && error !== null) {
+          const value = z.string().safeParse(args.data.value);
+          if (value.success) failures.set(error, value.data);
+        }
+        throw error;
+      }
+    },
   };
 }
 
@@ -123,7 +151,10 @@ function createOtpStorage(storage: OtpStorage): OtpStorage {
 }
 
 // Keep the upstream path so the client plugin and rate-limit rules continue to match.
-function createSendVerificationOtpEndpoint(options: EmailOtpPluginOptions): SendVerificationOtpEndpoint {
+function createSendVerificationOtpEndpoint(
+  options: EmailOtpPluginOptions,
+  creationFailures: CreationFailures
+): SendVerificationOtpEndpoint {
   return createAuthEndpoint(
     '/email-otp/send-verification-otp',
     {
@@ -152,7 +183,7 @@ function createSendVerificationOtpEndpoint(options: EmailOtpPluginOptions): Send
       if (!z.email().safeParse(email).success) {
         throw new APIError('BAD_REQUEST', { code: 'INVALID_EMAIL', message: 'Invalid email' });
       }
-      const otp = await resolveOtp(ctx, options, email, ctx.body.type);
+      const otp = await resolveOtp(ctx, options, email, ctx.body.type, creationFailures);
 
       // Awaited directly: upstream routes this through a helper that swallows the error and reports
       // success, leaving the user waiting for an email that never left. Every failure maps to the
@@ -177,7 +208,8 @@ async function resolveOtp(
   ctx: EndpointContext,
   options: EmailOtpPluginOptions,
   email: string,
-  type: OtpType
+  type: OtpType,
+  creationFailures: CreationFailures
 ): Promise<string> {
   const identifier = toOtpIdentifier(type, email);
 
@@ -197,7 +229,13 @@ async function resolveOtp(
     try {
       created = await ctx.context.internalAdapter.createVerificationValue(row);
     } catch (error) {
-      if (!isUniqueConstraintError(error)) throw error;
+      if (
+        typeof error !== 'object' ||
+        error === null ||
+        creationFailures.get(error) !== row.value ||
+        !isUniqueConstraintError(error)
+      )
+        throw error;
       const current = await ctx.context.internalAdapter.findVerificationValue(identifier);
       if (!current) {
         // The conflicting row can disappear before this request ever reads it.
