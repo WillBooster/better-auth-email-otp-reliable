@@ -74,8 +74,10 @@ export function reliableEmailOTP(options: EmailOtpPluginOptions): EmailOtpPlugin
   ]) {
     z.number().int().positive().parse(value);
   }
+  const { generateOTP, ...otherOptions } = options;
   const resolved = {
-    ...options,
+    ...otherOptions,
+    ...(generateOTP ? { generateOTP } : {}),
     resendStrategy: options.resendStrategy ?? 'reuse',
     storeOTP: createOtpStorage(options.storeOTP),
     disableSignUp: false,

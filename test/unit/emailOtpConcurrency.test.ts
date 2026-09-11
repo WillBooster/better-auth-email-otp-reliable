@@ -156,6 +156,14 @@ afterEach(() => {
 });
 
 describe('reliableEmailOTP with a real SQLite adapter', () => {
+  test('uses the default generator for upstream APIs when generateOTP is explicitly undefined', async () => {
+    const auth = createAuth({ generateOTP: undefined });
+    const email = 'default-generator@example.com';
+    const otp = await auth.api.createVerificationOTP({ body: { email, type: 'sign-in' } });
+    expect(otp).toMatch(/^\d{8}$/);
+    await expect(auth.api.signInEmailOTP({ body: { email, otp } })).resolves.toMatchObject({ user: { email } });
+  });
+
   test('keeps the emailed code usable when a resend creation hook fails', async () => {
     sendVerificationOTP.mockResolvedValue();
     const email = 'before-hook@example.com';
