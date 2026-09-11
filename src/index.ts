@@ -203,9 +203,8 @@ function toOtpIdentifier(type: OtpType, email: string): string {
 
 // The email-OTP endpoints accept any string as the code, and an unusable stored code is decrypted
 // as an empty string, which better-auth's constant-time comparison considers equal to an empty
-// submission. Any request carrying a code must carry one of the shape this app issues; matching on
-// the field rather than on a list of paths keeps every verifying endpoint covered, including ones
-// the app does not use itself.
+// submission. The guard is limited to Better Auth's email OTP endpoints so that other OTP-based
+// plugins can use their own code formats.
 // oxlint-disable-next-line typescript/explicit-function-return-type -- typed by the plugin's inferred `hooks.before` element.
 function createOtpShapeGuard(otpLength: number, allowAnyFormat: boolean) {
   const otpBodySchema = z.object({ otp: z.string().length(otpLength).regex(/^\d+$/) });
