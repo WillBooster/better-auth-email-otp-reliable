@@ -244,7 +244,7 @@ async function reusePendingOtp(
   const otp = await options.storeOTP.decrypt(storedOtp);
   if (!otp) return undefined;
 
-  const updated = await ctx.context.adapter.update({
+  const updated = await ctx.context.adapter.updateMany({
     model: 'verification',
     update: { expiresAt: expiresAt(options) },
     where: [
