@@ -12,15 +12,8 @@ pre-push:
 pre-commit:
   jobs:
     - name: cleanup
-      glob: '**/*.{java}'
-      run: |-
-        package_json_files="$(printf '%s\n' {staged_files} | grep -E '(^|/)package\.json$' || true)"
-
-
-
-        if [ -n "$package_json_files" ]; then
-          bun sort-package-json $package_json_files
-        fi
+      glob: '**/*.{astro,cjs,css,cts,gql,graphql,hbs,htm,html,java,js,json,json5,jsonc,jsx,less,md,mdx,mjs,mts,scss,svelte,toml,ts,tsx,vue,yaml,yml}'
+      run: bun wb lint --fix --format -- {staged_files}
       stage_fixed: true
     - name: check-migrations
       glob: '**/migration.sql'
