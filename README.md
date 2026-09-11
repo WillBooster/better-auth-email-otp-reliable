@@ -57,6 +57,10 @@ tests. Numeric options must be positive integers.
 concurrent insert conflicts still share the winning code. Prefer the default
 `'reuse'` so delayed emails stay useful.
 
+Once a replacement is stored, a later creation-hook or delivery failure does not
+restore the old code: a concurrent sender may already have delivered the replacement.
+The request still reports the error, and a retry can issue or deliver a usable code.
+
 ## Database contract
 
 The `verification.identifier` column **must have a database UNIQUE constraint**.
@@ -74,8 +78,8 @@ instances through the database without a process-local lock.
 
 The adapter records verification insertion failures without changing the thrown
 errors. Only recognized duplicate-key errors from that insertion enter conflict
-recovery; other database and creation-hook errors propagate without deleting a
-pending code. Duplicate errors
+recovery; other database and creation-hook errors propagate instead of triggering
+conflict recovery. Duplicate errors
 are recognized by SQLite/libSQL extended codes, Cloudflare D1's uniqueness error
 message, PostgreSQL SQLSTATE `23505`, MySQL `ER_DUP_ENTRY`/1062, or MongoDB 11000,
 including nested `cause` chains. Adapters with
