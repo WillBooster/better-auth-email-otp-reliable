@@ -4,6 +4,8 @@ import type { EmailOTPOptions } from 'better-auth/plugins';
 import { emailOTP } from 'better-auth/plugins';
 import { z } from 'zod';
 
+import { isUniqueConstraintError } from './databaseErrors.js';
+
 type SendVerificationOtp = EmailOTPOptions['sendVerificationOTP'];
 type OtpType = Parameters<SendVerificationOtp>[0]['type'];
 type EndpointContext = NonNullable<Parameters<SendVerificationOtp>[1]>;
@@ -193,6 +195,7 @@ async function resolveOtp(
     try {
       created = await ctx.context.internalAdapter.createVerificationValue(row);
     } catch (error) {
+      if (!isUniqueConstraintError(error)) throw error;
       const current = await ctx.context.internalAdapter.findVerificationValue(identifier);
       if (!current) {
         // A previously observed row can disappear while another sender replaces it.

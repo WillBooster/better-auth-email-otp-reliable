@@ -156,6 +156,30 @@ afterEach(() => {
 });
 
 describe('reliableEmailOTP with a real SQLite adapter', () => {
+  test('keeps the emailed code usable when a resend creation hook fails', async () => {
+    sendVerificationOTP.mockResolvedValue();
+    const email = 'before-hook@example.com';
+    const auth = createAuth();
+    await auth.api.sendVerificationOTP({ body: { email, type: 'sign-in' } });
+    const otp = sendVerificationOTP.mock.calls[0]![0].otp;
+    const failure = new Error('Creation denied');
+    const failingAuth = createAuth(
+      { resendStrategy: 'rotate' },
+      {
+        verification: {
+          create: {
+            before: async () => {
+              throw failure;
+            },
+          },
+        },
+      }
+    );
+    await expect(failingAuth.api.sendVerificationOTP({ body: { email, type: 'sign-in' } })).rejects.toBe(failure);
+    expect(sendVerificationOTP.mock.calls).toHaveLength(1);
+    await expect(auth.api.signInEmailOTP({ body: { email, otp } })).resolves.toMatchObject({ user: { email } });
+  });
+
   test('reconciles a conflicting send while another request is between deletion and insertion', async () => {
     sendVerificationOTP.mockResolvedValue();
     const email = 'replacement-gap@example.com';
