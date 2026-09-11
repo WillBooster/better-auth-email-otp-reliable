@@ -30,6 +30,7 @@ export interface EmailOtpPluginOptions extends Pick<
 
 /** Raised when the verification email could not be handed to the mail provider. */
 export const FAILED_TO_SEND_EMAIL = 'FAILED_TO_SEND_EMAIL';
+const deliveryError = { code: FAILED_TO_SEND_EMAIL, message: 'Failed to send the verification email' } as const;
 
 const STORAGE_PREFIX = 'reliable-email-otp:v1:';
 const storedOtpSchema = z.tuple([z.string(), z.string()]);
@@ -51,6 +52,7 @@ type SendVerificationOtpEndpoint = ReturnType<
 >;
 
 type EmailOtpPlugin = Omit<BaseEmailOtpPlugin, 'endpoints'> & {
+  $ERROR_CODES: BaseEmailOtpPlugin['$ERROR_CODES'] & { FAILED_TO_SEND_EMAIL: typeof deliveryError };
   endpoints: Omit<BaseEmailOtpPlugin['endpoints'], 'sendVerificationOTP'> & {
     sendVerificationOTP: SendVerificationOtpEndpoint;
   };
@@ -84,6 +86,7 @@ export function reliableEmailOTP(options: EmailOtpPluginOptions): EmailOtpPlugin
   const base = emailOTP(resolved);
   return {
     ...base,
+    $ERROR_CODES: { ...base.$ERROR_CODES, FAILED_TO_SEND_EMAIL: deliveryError },
     init(ctx: Parameters<NonNullable<typeof base.init>>[0]) {
       if (ctx.options.secondaryStorage) {
         throw new Error(
@@ -156,10 +159,7 @@ function createSendVerificationOtpEndpoint(options: EmailOtpPluginOptions): Send
         await options.sendVerificationOTP({ email, otp, type: ctx.body.type }, ctx);
       } catch (error) {
         ctx.context.logger.error('Failed to send the verification email', error);
-        throw new APIError('SERVICE_UNAVAILABLE', {
-          code: FAILED_TO_SEND_EMAIL,
-          message: 'Failed to send the verification email',
-        });
+        throw new APIError('SERVICE_UNAVAILABLE', deliveryError);
       }
       return ctx.json({ success: true });
     }
