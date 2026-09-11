@@ -136,35 +136,26 @@ async function resolveOtp(
   const otp = options.generateOTP?.({ email, type }, ctx) || generateRandomString(options.otpLength, '0-9');
   const row = { identifier, value: `${await options.storeOTP.encrypt(otp)}:0`, expiresAt: expiresAt(options) };
 
-  // The unique identifier is the only reason an insert can fail. A row that was not there at the
-  // last lookup, or that has changed since, belongs to a concurrent request that is about to email
-  // its own code: deliver that same code instead of replacing it, because replacing would silently
-  // invalidate the code the user is about to receive. Only the row read at the last lookup is
-  // replaced (with `reuse` it could not be reused, with `rotate` the user asked for a new code),
-  // and only while it is still that row, so that a replacement never removes what a concurrent
-  // request stored in the meantime. The insert after a replacement can lose to a concurrent request
-  // in the same way, hence the loop; each pass hands over to a code another request just stored,
-  // so a few passes cover any interleaving.
+  // Reservation uses a deterministic primary key derived from the identifier, so it remains
+  // atomic even when the verification table does not make identifier unique. A losing request
+  // hands over to the code another request stored instead of invalidating that code.
   for (let pass = 0; ; pass++) {
-    try {
-      await ctx.context.internalAdapter.createVerificationValue(row);
-      return otp;
-    } catch (error) {
-      // Rows are told apart by id: the value changes whenever a failed attempt is counted.
-      const current = await ctx.context.internalAdapter.findVerificationValue(identifier);
-      if (current && current.id !== seen?.id) {
-        const concurrent = await reusePendingOtp(ctx, options, identifier, current);
-        if (concurrent) return concurrent;
-      }
-      if (pass >= 2) throw error;
-      seen = current;
-      if (current) {
-        // Scoped to the row that was read by its id: the internal adapter deletes by identifier
-        // alone, which would also remove a row a concurrent request stored since the lookup. Going
-        // through the adapter skips the database hooks, of which this app configures none for
-        // verification rows.
-        await ctx.context.adapter.delete({ model: 'verification', where: [{ field: 'id', value: current.id }] });
-      }
+    if (await ctx.context.internalAdapter.reserveVerificationValue(row)) return otp;
+
+    // Rows are told apart by id: the value changes whenever a failed attempt is counted.
+    const current = await ctx.context.internalAdapter.findVerificationValue(identifier);
+    if (current && current.id !== seen?.id) {
+      const concurrent = await reusePendingOtp(ctx, options, identifier, current);
+      if (concurrent) return concurrent;
+    }
+    if (pass >= 2) {
+      throw new APIError('INTERNAL_SERVER_ERROR', { message: 'Failed to reserve the email OTP' });
+    }
+    seen = current;
+    if (current) {
+      // Delete only the row observed by this request, because another request may have replaced it
+      // after this lookup.
+      await ctx.context.adapter.delete({ model: 'verification', where: [{ field: 'id', value: current.id }] });
     }
   }
 }
