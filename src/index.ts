@@ -13,12 +13,10 @@ interface OtpStorage {
   decrypt: (storedOtp: string) => Promise<string>;
 }
 
-// `disableSignUp` is excluded: the send endpoint below sends a code to every address alike, and
-// the option would only make the upstream `/sign-in/email-otp` reject an unknown address's code
-// instead of creating its account, which is how this app signs users up.
-export interface EmailOtpPluginOptions extends Omit<
+/** Options for email OTP sign-in with automatic account creation. */
+export interface EmailOtpPluginOptions extends Pick<
   EmailOTPOptions,
-  'storeOTP' | 'disableSignUp' | 'overrideDefaultEmailVerification' | 'sendVerificationOnSignUp'
+  'generateOTP' | 'rateLimit' | 'sendVerificationOTP' | 'resendStrategy'
 > {
   otpLength: number;
   expiresIn: number;
@@ -38,28 +36,51 @@ const sendVerificationOtpBodySchema = z.object({
   type: z.enum(OTP_TYPES).meta({ description: 'Type of the OTP' }),
 });
 
-/**
- * better-auth's `emailOTP` plugin whose send endpoint is replaced to fix two upstream defects:
- * - two concurrent first requests for the same address each emailed a code, and the second
- *   request silently invalidated the first code (better-auth/better-auth#11181);
- * - a failed `sendVerificationOTP` for a sign-in code was reported to the client as
- *   `success: true` (better-auth/better-auth#11107).
- * The override can be removed once better-auth ships better-auth/better-auth#11182 and #11183.
- * Only that endpoint is replaced: the plugin's `overrideDefaultEmailVerification` and
- * `sendVerificationOnSignUp` flows still call the upstream implementation, so they must stay off.
- */
-// oxlint-disable-next-line typescript/explicit-function-return-type -- the plugin type must stay inferred so that better-auth infers its endpoints.
-export function reliableEmailOTP(options: EmailOtpPluginOptions) {
-  const base = emailOTP(options);
+type EmailOtpPlugin = ReturnType<typeof emailOTP> & {
+  hooks: {
+    before: {
+      matcher: (ctx: { body?: unknown; path?: string }) => boolean;
+      handler: ReturnType<typeof createAuthMiddleware>;
+    }[];
+  };
+};
+
+/** Email OTP sign-in with database-coordinated sends and awaited delivery. */
+export function reliableEmailOTP(options: EmailOtpPluginOptions): EmailOtpPlugin {
+  for (const value of [options.otpLength, options.expiresIn, options.allowedAttempts]) {
+    z.number().int().positive().parse(value);
+  }
+  const resolved = {
+    ...options,
+    resendStrategy: options.resendStrategy ?? 'reuse',
+    storeOTP: {
+      encrypt: (otp: string) => options.storeOTP.encrypt(otp),
+      async decrypt(value: string): Promise<string> {
+        try {
+          return await options.storeOTP.decrypt(value);
+        } catch {
+          // Pending codes from a previous encryption key must fail closed and be replaceable.
+          return '';
+        }
+      },
+    },
+    disableSignUp: false,
+    overrideDefaultEmailVerification: false,
+    sendVerificationOnSignUp: false,
+    changeEmail: { enabled: false },
+  };
+  const base = emailOTP(resolved);
   return {
     ...base,
     init(ctx: Parameters<NonNullable<typeof base.init>>[0]) {
-      if (ctx.options.secondaryStorage && ctx.options.verification?.storeInDatabase !== true) {
-        throw new Error('reliableEmailOTP requires verification.storeInDatabase when secondaryStorage is configured');
+      if (ctx.options.secondaryStorage) {
+        throw new Error(
+          'reliableEmailOTP does not support secondaryStorage; verification must use the database directly'
+        );
       }
       return base.init?.(ctx);
     },
-    endpoints: { ...base.endpoints, sendVerificationOTP: createSendVerificationOtpEndpoint(options) },
+    endpoints: { ...base.endpoints, sendVerificationOTP: createSendVerificationOtpEndpoint(resolved) },
     hooks: { ...base.hooks, before: [createOtpShapeGuard(options.otpLength, !!options.generateOTP)] },
   };
 }
@@ -97,7 +118,7 @@ function createSendVerificationOtpEndpoint(options: EmailOtpPluginOptions) {
       if (!z.email().safeParse(email).success) {
         throw new APIError('BAD_REQUEST', { code: 'INVALID_EMAIL', message: 'Invalid email' });
       }
-      // This app sends codes for signing in only. Upstream looks the account up first and answers
+      // This plugin sends codes for signing in only. Upstream looks the account up first and answers
       // success for an unknown address, which would turn a rejection here into an account-existence
       // probe, so the type is settled before anything that depends on the address.
       if (ctx.body.type !== 'sign-in') {
@@ -145,28 +166,39 @@ async function resolveOtp(
   const otp = options.generateOTP?.({ email, type }, ctx) || generateRandomString(options.otpLength, '0-9');
   const row = { identifier, value: `${await options.storeOTP.encrypt(otp)}:0`, expiresAt: expiresAt(options) };
 
-  // Reservation uses a deterministic primary key derived from the identifier, so it remains
-  // atomic even when the verification table does not make identifier unique. A losing request
-  // hands over to the code another request stored instead of invalidating that code.
+  // A UNIQUE constraint on verification.identifier is the cross-process arbitration point.
+  // Let Better Auth assign row IDs, including serial IDs used by existing applications.
   for (let pass = 0; ; pass++) {
-    if (await ctx.context.internalAdapter.reserveVerificationValue(row)) return otp;
-
-    // The reservation ID is deterministic for an identifier, so compare the value as well to
-    // distinguish a row replaced since the previous lookup.
-    const current = await ctx.context.internalAdapter.findVerificationValue(identifier);
-    if (current && (current.id !== seen?.id || current.value !== seen?.value)) {
-      const concurrent = await reusePendingOtp(ctx, options, current);
-      if (concurrent) return concurrent;
-    }
-    if (pass >= 2) {
-      throw new APIError('INTERNAL_SERVER_ERROR', { message: 'Failed to reserve the email OTP' });
-    }
-    seen = current;
-    if (current) {
+    let created;
+    try {
+      created = await ctx.context.internalAdapter.createVerificationValue(row);
+    } catch (error) {
+      // A storage outage or a rejected create hook is not a competing request.
+      // Reconcile only when a row actually exists, and preserve the original error.
+      const current = await ctx.context.internalAdapter.findVerificationValue(identifier);
+      if (!current) throw error;
+      if (options.resendStrategy === 'reuse' || current.id !== seen?.id || current.value !== seen?.value) {
+        const concurrent = await reusePendingOtp(ctx, options, current);
+        if (concurrent) return concurrent;
+      }
+      if (pass >= 2) {
+        throw error;
+      }
+      seen = current;
       // Delete only the row observed by this request, because another request may have replaced it
       // after this lookup.
-      await ctx.context.adapter.delete({ model: 'verification', where: [{ field: 'id', value: current.id }] });
+      await ctx.context.adapter.delete({
+        model: 'verification',
+        where: [
+          { field: 'id', value: current.id },
+          { field: 'value', value: current.value },
+          { field: 'expiresAt', value: current.expiresAt },
+        ],
+      });
+      continue;
     }
+    if (!created) throw new Error('Verification creation was rejected');
+    return otp;
   }
 }
 
@@ -176,12 +208,14 @@ async function reusePendingOtp(
   options: EmailOtpPluginOptions,
   pending: { id: string; value: string; expiresAt: Date }
 ): Promise<string | undefined> {
-  if (pending.expiresAt < new Date()) return undefined;
+  if (pending.expiresAt <= new Date()) return undefined;
 
   const separatorIndex = pending.value.lastIndexOf(':');
   const storedOtp = pending.value.slice(0, separatorIndex);
   const attempts = Number(pending.value.slice(separatorIndex + 1));
-  if (attempts >= options.allowedAttempts) return undefined;
+  if (separatorIndex < 1 || !Number.isInteger(attempts) || attempts < 0 || attempts >= options.allowedAttempts) {
+    return undefined;
+  }
 
   const otp = await options.storeOTP.decrypt(storedOtp);
   if (!otp) return undefined;
@@ -192,6 +226,7 @@ async function reusePendingOtp(
     where: [
       { field: 'id', value: pending.id },
       { field: 'value', value: pending.value },
+      { field: 'expiresAt', value: new Date(), operator: 'gt' },
     ],
   });
   if (!updated) return undefined;

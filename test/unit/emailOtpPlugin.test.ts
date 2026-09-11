@@ -64,7 +64,7 @@ describe('reliableEmailOTP', () => {
   });
 
   test('reports a failed send to the caller', async () => {
-    sendVerificationOTP.mockRejectedValue(new Error('SMTP unavailable'));
+    sendVerificationOTP.mockRejectedValueOnce(new Error('SMTP unavailable')).mockResolvedValue();
     const auth = createAuth();
 
     const error = await auth.api
@@ -72,6 +72,12 @@ describe('reliableEmailOTP', () => {
       .catch((error: unknown) => error);
     expect(error).toBeInstanceOf(APIError);
     expect(error).toMatchObject({ status: 'SERVICE_UNAVAILABLE', body: { code: FAILED_TO_SEND_EMAIL } });
+    await auth.api.sendVerificationOTP({ body: { email: 'user@example.com', type: 'sign-in' } });
+    const otp = sendVerificationOTP.mock.calls[1]![0].otp;
+    expect(otp).toBe(sendVerificationOTP.mock.calls[0]![0].otp);
+    await expect(auth.api.signInEmailOTP({ body: { email: 'user@example.com', otp } })).resolves.toMatchObject({
+      user: { email: 'user@example.com' },
+    });
   });
 
   test('reuses a pending code when a user resends it', async () => {
@@ -100,5 +106,30 @@ describe('reliableEmailOTP', () => {
 
     const error = await auth.api.signInEmailOTP({ body: { email, otp: '' } }).catch((error: unknown) => error);
     expect(error).toMatchObject({ status: 'BAD_REQUEST', body: { code: 'INVALID_OTP' } });
+  });
+
+  test('accepts a custom code format through the HTTP handler', async () => {
+    sendVerificationOTP.mockResolvedValue();
+    const auth = createAuth(createStorage(), () => 'CUSTOM-CODE');
+    const email = 'Custom@Example.com';
+    const send = await auth.handler(
+      new Request('http://localhost:3000/api/auth/email-otp/send-verification-otp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, type: 'sign-in' }),
+      })
+    );
+    expect(send.status).toBe(200);
+    const otp = sendVerificationOTP.mock.calls[0]![0].otp;
+    const signIn = await auth.handler(
+      new Request('http://localhost:3000/api/auth/sign-in/email-otp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, otp }),
+      })
+    );
+    expect(signIn.status).toBe(200);
+    expect(await signIn.json()).toMatchObject({ user: { email: email.toLowerCase() } });
+    expect(signIn.headers.get('set-cookie')).toContain('better-auth.session_token=');
   });
 });
