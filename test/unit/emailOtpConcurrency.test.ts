@@ -25,7 +25,8 @@ const createAuth = (
   options: Partial<EmailOtpPluginOptions> = {},
   databaseHooks?: BetterAuthOptions['databaseHooks'],
   useUpstream = false,
-  beforeVerificationLookup?: () => Promise<void>
+  beforeVerificationLookup?: () => Promise<void>,
+  extraPlugins: NonNullable<BetterAuthOptions['plugins']> = []
   // oxlint-disable-next-line typescript/explicit-function-return-type -- keep Better Auth's plugin endpoint inference in the test.
 ) =>
   betterAuth({
@@ -57,6 +58,7 @@ const createAuth = (
         sendVerificationOTP,
         ...options,
       }),
+      ...extraPlugins,
     ],
   });
 
@@ -67,6 +69,48 @@ afterEach(() => {
 });
 
 describe('reliableEmailOTP with a real SQLite adapter', () => {
+  test('does not issue or deliver OTPs when another plugin enables secondary storage', async () => {
+    sendVerificationOTP.mockResolvedValue();
+    const cache = new Map<string, string>();
+    const auth = createAuth({}, undefined, false, undefined, [
+      {
+        id: 'secondary-storage',
+        init: () => ({
+          options: {
+            secondaryStorage: {
+              get: async (key: string) => cache.get(key),
+              getAndDelete: async (key: string) => {
+                const value = cache.get(key);
+                cache.delete(key);
+                return value;
+              },
+              increment: async (key: string) => {
+                const value = Number(cache.get(key) ?? 0) + 1;
+                cache.set(key, String(value));
+                return value;
+              },
+              set: async (key: string, value: string) => {
+                cache.set(key, value);
+              },
+              delete: async (key: string) => {
+                cache.delete(key);
+              },
+            },
+          },
+        }),
+      },
+    ]);
+    const body = { email: 'secondary@example.com', type: 'sign-in' as const };
+    const results = await Promise.allSettled([
+      auth.api.sendVerificationOTP({ body }),
+      auth.api.sendVerificationOTP({ body }),
+      auth.api.createVerificationOTP({ body }),
+    ]);
+    expect(results.map(({ status }) => status)).toEqual(['rejected', 'rejected', 'rejected']);
+    expect(cache.size).toBe(0);
+    expect(sendVerificationOTP).not.toHaveBeenCalled();
+  });
+
   test('reuses the code when the database suppresses unchanged expiry writes', async () => {
     vi.useFakeTimers({ toFake: ['Date'] });
     sendVerificationOTP.mockResolvedValue();

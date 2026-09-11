@@ -88,8 +88,9 @@ message, PostgreSQL SQLSTATE `23505`, MySQL `ER_DUP_ENTRY`/1062, or MongoDB 1100
 including nested `cause` chains. Adapters with
 other error formats fail closed and need compatibility work before use.
 
-Secondary storage is rejected at initialization, even with
-`verification.storeInDatabase: true`: conditional database writes cannot safely
+Secondary storage supplied directly is rejected at initialization. The finalized
+configuration is also checked before API requests to catch storage added by other
+plugins. This includes `verification.storeInDatabase: true`: conditional database writes cannot safely
 keep Better Auth's verification cache in sync. Use a database-only Better Auth
 instance for this plugin.
 

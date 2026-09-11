@@ -94,19 +94,34 @@ export function reliableEmailOTP(options: EmailOtpPluginOptions): EmailOtpPlugin
     ...base,
     $ERROR_CODES: { ...base.$ERROR_CODES, FAILED_TO_SEND_EMAIL: deliveryError },
     init(ctx: PluginContext) {
-      if (ctx.options.secondaryStorage) {
-        throw new Error(
-          'reliableEmailOTP does not support secondaryStorage; verification must use the database directly'
-        );
-      }
+      assertDatabaseStorage(ctx.options);
       return { context: { adapter: trackCreationFailures(ctx.adapter, creationFailures) } };
     },
     endpoints: {
       ...base.endpoints,
       sendVerificationOTP: createSendVerificationOtpEndpoint(resolved, creationFailures),
     },
-    hooks: { ...base.hooks, before: [createOtpShapeGuard(options.otpLength, !!options.generateOTP)] },
+    hooks: {
+      ...base.hooks,
+      before: [createDatabaseStorageGuard(), createOtpShapeGuard(options.otpLength, !!options.generateOTP)],
+    },
   };
+}
+
+function createDatabaseStorageGuard(): EmailOtpPlugin['hooks']['before'][number] {
+  return {
+    matcher: () => true,
+    handler: createAuthMiddleware(async (ctx) => {
+      // Other plugins can add options after this plugin's init has run.
+      assertDatabaseStorage(ctx.context.options);
+    }),
+  };
+}
+
+function assertDatabaseStorage(options: PluginContext['options']): void {
+  if (options.secondaryStorage) {
+    throw new Error('reliableEmailOTP does not support secondaryStorage; verification must use the database directly');
+  }
 }
 
 function trackCreationFailures(
