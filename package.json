@@ -1,8 +1,13 @@
 {
-  "name": "better-auth-email-otp-reliable-repository",
+  "name": "better-auth-email-otp-reliable",
   "version": "0.0.0-semantically-released",
-  "private": true,
   "description": "A reliable email OTP plugin for Better Auth",
+  "keywords": [
+    "authentication",
+    "better-auth",
+    "email",
+    "otp"
+  ],
   "repository": {
     "type": "git",
     "url": "git+https://github.com/WillBooster/better-auth-email-otp-reliable.git"
@@ -10,11 +15,8 @@
   "license": "Apache-2.0",
   "author": "WillBooster Inc.",
   "type": "module",
-  "workspaces": [
-    "packages/*"
-  ],
   "scripts": {
-    "build": "bun run --filter better-auth-email-otp-reliable build",
+    "build": "build-ts lib",
     "cleanup": "bun wb lint --fix --format",
     "format": "bun wb lint --format",
     "lint": "bun wb lint",
@@ -27,9 +29,35 @@
     "verify-full": "bun wb verify --full"
   },
   "devDependencies": {
+    "@tsconfig/bun": "1.0.11",
+    "@tsconfig/node-lts": "24.0.1",
+    "@tsconfig/node-ts": "23.6.4",
+    "@types/bun": "1.4.0",
+    "@types/node": "26.4.0",
+    "@willbooster/oxfmt-config": "1.2.2",
+    "@willbooster/oxlint-config": "1.4.8",
     "@willbooster/wb": "22.1.4",
-    "better-auth": "1.7.2",
+    "better-auth": "1.6.29",
     "build-ts": "21.0.12",
+    "conventional-changelog-conventionalcommits": "10.4.0",
+    "lefthook": "2.1.12",
+    "oxfmt": "0.65.0",
+    "oxlint": "1.80.0",
+    "oxlint-tsgolint": "7.0.2001",
+    "semantic-release": "25.0.9",
+    "sort-package-json": "4.0.0",
+    "typescript": "7.0.2",
     "vitest": "4.1.11"
+  },
+  "peerDependencies": {
+    "better-auth": ">=1.6.0",
+    "zod": "4.5.4"
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
   }
 }
