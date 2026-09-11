@@ -2,7 +2,5 @@
 node = "24.20.0"
 bun = "1.4.2"
 fnox = "1.33.1"
-
-[settings]
-env_file = false
-experimental = true
+env = false
+telemetry = false
