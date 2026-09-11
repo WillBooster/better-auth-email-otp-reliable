@@ -36,7 +36,7 @@ const createAuth = (
         provider: 'sqlite',
         schema,
       })(authOptions);
-      return {
+      const scheduledAdapter = {
         ...adapter,
         async findMany<T>(args: Parameters<typeof adapter.findMany>[0]): Promise<T[]> {
           if (args.model === 'verification' && args.where?.some(({ field }) => field === 'identifier')) {
@@ -45,6 +45,7 @@ const createAuth = (
           return adapter.findMany<T>(args);
         },
       };
+      return Object.create(scheduledAdapter) as typeof adapter;
     },
     baseURL: 'http://localhost:3000',
     secret: SECRET,

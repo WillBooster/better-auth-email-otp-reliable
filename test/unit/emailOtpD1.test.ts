@@ -1,4 +1,4 @@
-import { betterAuth } from 'better-auth';
+import { type BetterAuthOptions, betterAuth } from 'better-auth';
 import { drizzleAdapter } from 'better-auth/adapters/drizzle';
 import { drizzle } from 'drizzle-orm/d1';
 import { Miniflare } from 'miniflare';
@@ -7,7 +7,7 @@ import { expect, test } from 'vitest';
 import { reliableEmailOTP } from '../../src/index.js';
 import { schema, schemaSql } from '../helpers/authDatabase.js';
 
-test('D1 concurrent sends and rotations deliver a code that signs in', async () => {
+test('D1 concurrent sends and rotations work with a readonly adapter', async () => {
   const worker = new Miniflare({ modules: true, script: 'export default {};', d1Databases: ['DB'] });
   try {
     const database = await worker.getD1Database('DB');
@@ -21,7 +21,8 @@ test('D1 concurrent sends and rotations deliver a code that signs in', async () 
     let nextOtp = 10_000_000;
     let beforeEncrypt = createPairBarrier();
     const auth = betterAuth({
-      database: drizzleAdapter(drizzle(database), { provider: 'sqlite', schema }),
+      database: (options: BetterAuthOptions) =>
+        Object.freeze(drizzleAdapter(drizzle(database), { provider: 'sqlite', schema })(options)),
       baseURL: 'http://localhost:3000',
       secret: crypto.randomUUID(),
       advanced: { database: { generateId: 'serial' } },

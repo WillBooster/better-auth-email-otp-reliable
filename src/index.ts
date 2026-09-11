@@ -131,21 +131,35 @@ function trackCreationFailures(
   adapter: PluginContext['adapter'],
   failures: CreationFailures
 ): PluginContext['adapter'] {
-  return {
-    ...adapter,
-    async create(args) {
-      try {
-        return await adapter.create(args);
-      } catch (error) {
-        // Hook errors may carry the same driver code; record only actual verification insert failures.
-        if (args.model === 'verification' && typeof error === 'object' && error !== null) {
-          const value = z.string().safeParse(args.data.value);
-          if (value.success) failures.set(error, value.data);
-        }
-        throw error;
+  const create: PluginContext['adapter']['create'] = async (args) => {
+    try {
+      return await adapter.create(args);
+    } catch (error) {
+      // Hook errors may carry the same driver code; record only actual verification insert failures.
+      if (args.model === 'verification' && typeof error === 'object' && error !== null) {
+        const value = z.string().safeParse(args.data.value);
+        if (value.success) failures.set(error, value.data);
       }
-    },
+      throw error;
+    }
   };
+  const boundMethods = new WeakMap<object, unknown>();
+  // A separate target also permits intercepting a frozen adapter's create method.
+  return new Proxy(Object.create(adapter) as PluginContext['adapter'], {
+    get(_target, key) {
+      if (key === 'create') return create;
+      const value: unknown = Reflect.get(adapter, key, adapter);
+      if (typeof value !== 'function') return value;
+      if (!boundMethods.has(value)) boundMethods.set(value, value.bind(adapter));
+      return boundMethods.get(value);
+    },
+    getPrototypeOf: () => Reflect.getPrototypeOf(adapter),
+    ownKeys: () => Reflect.ownKeys(adapter),
+    getOwnPropertyDescriptor(_target, key) {
+      const descriptor = Reflect.getOwnPropertyDescriptor(adapter, key);
+      return descriptor ? { ...descriptor, configurable: true } : undefined;
+    },
+  });
 }
 
 function createOtpStorage(storage: OtpStorage): OtpStorage {
