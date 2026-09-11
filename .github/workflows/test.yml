@@ -17,6 +17,12 @@ jobs:
     uses: WillBooster/reusable-workflows/.github/workflows/test.yml@main
     with:
       github_hosted_runner: true
+      custom_test_command: >-
+        test/ci &&
+        bun add --dev --exact --ignore-scripts better-auth@1.6.29 &&
+        bun run typecheck &&
+        bun run test/ci &&
+        bun run build
     secrets:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       TAKUMI_GUARD_TOKEN: ${{ secrets.TAKUMI_GUARD_TOKEN }}

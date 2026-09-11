@@ -116,7 +116,9 @@ delivery.
 The package depends on Better Auth's internal verification format and adapter
 behavior. Compatibility is tested with Better Auth 1.6.29 (prompt-study) and 1.7.2
 (Exercode); the peer range excludes 1.8 and later until those contracts are reviewed.
-The development dependency follows Exercode's 1.7.2. Tests exercise actual HTTP sign-in,
+The development dependency follows Exercode's 1.7.2. CI checks that locked version,
+then installs 1.6.29 in its disposable checkout and repeats type checking, tests,
+and the build. Tests exercise actual HTTP sign-in,
 delivery failure recovery, and real SQLite concurrency with the applications'
 serial-ID and unique-identifier schema, plus D1 concurrency through Miniflare's
 actual Workers runtime. Run `bun run verify-full` and `bun run build`
