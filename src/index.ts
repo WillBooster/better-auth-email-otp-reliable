@@ -47,7 +47,12 @@ type EmailOtpPlugin = ReturnType<typeof emailOTP> & {
 
 /** Email OTP sign-in with database-coordinated sends and awaited delivery. */
 export function reliableEmailOTP(options: EmailOtpPluginOptions): EmailOtpPlugin {
-  for (const value of [options.otpLength, options.expiresIn, options.allowedAttempts]) {
+  for (const value of [
+    options.otpLength,
+    options.expiresIn,
+    options.allowedAttempts,
+    ...(options.rateLimit ? [options.rateLimit.window, options.rateLimit.max] : []),
+  ]) {
     z.number().int().positive().parse(value);
   }
   const resolved = {
