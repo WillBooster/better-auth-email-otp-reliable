@@ -74,8 +74,9 @@ instances through the database without a process-local lock.
 
 Only recognized duplicate-key errors enter conflict recovery; other database and
 creation-hook errors propagate without deleting a pending code. Duplicate errors
-are recognized by SQLite/libSQL extended codes, PostgreSQL SQLSTATE `23505`, MySQL
-`ER_DUP_ENTRY`/1062, or MongoDB 11000, including nested `cause` chains. Adapters with
+are recognized by SQLite/libSQL extended codes, Cloudflare D1's uniqueness error
+message, PostgreSQL SQLSTATE `23505`, MySQL `ER_DUP_ENTRY`/1062, or MongoDB 11000,
+including nested `cause` chains. Adapters with
 other error formats fail closed and need compatibility work before use.
 
 Secondary storage is rejected at initialization, even with
@@ -104,5 +105,6 @@ behavior. Compatibility is tested with Better Auth 1.6.29 (prompt-study) and 1.7
 (Exercode); the peer range excludes 1.8 and later until those contracts are reviewed.
 The development dependency follows Exercode's 1.7.2. Tests exercise actual HTTP sign-in,
 delivery failure recovery, and real SQLite concurrency with the applications'
-serial-ID and unique-identifier schema. Run `bun run verify-full` and `bun run build`
+serial-ID and unique-identifier schema, plus D1 concurrency through Miniflare's
+actual Workers runtime. Run `bun run verify-full` and `bun run build`
 when changing the package.

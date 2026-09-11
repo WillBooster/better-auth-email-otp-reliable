@@ -4,6 +4,7 @@ const databaseErrorSchema = z.object({
   code: z.union([z.string(), z.number()]).optional(),
   errno: z.number().optional(),
   rawCode: z.number().optional(),
+  message: z.string().optional(),
   cause: z.unknown().optional(),
 });
 const uniqueConstraintCodes = new Set<string | number>([
@@ -23,12 +24,16 @@ export function isUniqueConstraintError(error: unknown): boolean {
     seen.add(error);
     const result = databaseErrorSchema.safeParse(error);
     if (!result.success) return false;
-    const { code, errno, rawCode, cause } = result.data;
+    const { code, errno, rawCode, message, cause } = result.data;
     if (
       (code !== undefined && uniqueConstraintCodes.has(code)) ||
       errno === 1062 ||
       rawCode === 2067 ||
-      rawCode === 1555
+      rawCode === 1555 ||
+      (message !== undefined &&
+        /^D1_ERROR: UNIQUE constraint failed: .+: SQLITE_CONSTRAINT(?: \(extended: SQLITE_CONSTRAINT_(?:UNIQUE|PRIMARYKEY)\))?$/.test(
+          message
+        ))
     ) {
       return true;
     }
