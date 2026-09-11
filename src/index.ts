@@ -294,16 +294,23 @@ async function reusePendingOtp(
   const otp = await options.storeOTP.decrypt(storedOtp);
   if (!otp) return undefined;
 
+  const where = [
+    { field: 'id', value: pending.id },
+    { field: 'value', value: pending.value },
+  ];
   const updated = await ctx.context.adapter.updateMany({
     model: 'verification',
     update: { expiresAt: expiresAt(options) },
-    where: [
-      { field: 'id', value: pending.id },
-      { field: 'value', value: pending.value },
-      { field: 'expiresAt', value: new Date(), operator: 'gt' },
-    ],
+    where: [...where, { field: 'expiresAt', value: new Date(), operator: 'gt' }],
   });
-  if (!updated) return undefined;
+  if (!updated) {
+    // Some drivers count changed rows, so an unchanged expiry can also report zero.
+    const current = await ctx.context.adapter.findOne({
+      model: 'verification',
+      where: [...where, { field: 'expiresAt', value: new Date(), operator: 'gt' }],
+    });
+    if (!current) return undefined;
+  }
   return otp;
 }
 

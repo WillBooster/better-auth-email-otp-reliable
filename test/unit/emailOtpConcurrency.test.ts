@@ -67,6 +67,25 @@ afterEach(() => {
 });
 
 describe('reliableEmailOTP with a real SQLite adapter', () => {
+  test('reuses the code when the database suppresses unchanged expiry writes', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    sendVerificationOTP.mockResolvedValue();
+    let nextOtp = 10_000_000;
+    const auth = createAuth({ generateOTP: () => String(nextOtp++) });
+    const email = 'unchanged-expiry@example.com';
+    sqliteDatabase.exec(`CREATE TRIGGER skip_unchanged_expiry BEFORE UPDATE OF expires_at ON verification
+      WHEN NEW.expires_at = OLD.expires_at BEGIN SELECT RAISE(IGNORE); END;`);
+    try {
+      await auth.api.sendVerificationOTP({ body: { email, type: 'sign-in' } });
+      const otp = sendVerificationOTP.mock.calls[0]![0].otp;
+      await auth.api.sendVerificationOTP({ body: { email, type: 'sign-in' } });
+      expect(sendVerificationOTP.mock.calls[1]![0].otp).toBe(otp);
+      await expect(auth.api.signInEmailOTP({ body: { email, otp } })).resolves.toMatchObject({ user: { email } });
+    } finally {
+      sqliteDatabase.exec('DROP TRIGGER skip_unchanged_expiry');
+    }
+  });
+
   test('propagates a duplicate-key failure from a creation hook without rotating the emailed code', async () => {
     sendVerificationOTP.mockResolvedValue();
     const email = 'duplicate-hook@example.com';
