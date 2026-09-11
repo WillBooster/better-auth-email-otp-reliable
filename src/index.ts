@@ -53,6 +53,12 @@ export function reliableEmailOTP(options: EmailOtpPluginOptions) {
   const base = emailOTP(options);
   return {
     ...base,
+    init(ctx: Parameters<NonNullable<typeof base.init>>[0]) {
+      if (ctx.options.secondaryStorage && ctx.options.verification?.storeInDatabase !== true) {
+        throw new Error('reliableEmailOTP requires verification.storeInDatabase when secondaryStorage is configured');
+      }
+      return base.init?.(ctx);
+    },
     endpoints: { ...base.endpoints, sendVerificationOTP: createSendVerificationOtpEndpoint(options) },
     hooks: { ...base.hooks, before: [createOtpShapeGuard(options.otpLength, !!options.generateOTP)] },
   };

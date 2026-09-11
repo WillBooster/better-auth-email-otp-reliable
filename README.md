@@ -8,3 +8,7 @@ Reliable email OTP delivery for [Better Auth](https://www.better-auth.com/).
 This package keeps a pending OTP usable when concurrent send requests collide,
 reuses a pending OTP for resends, and propagates synchronous delivery failures
 to the caller.
+
+When Better Auth secondary storage is configured, set `verification.storeInDatabase`
+to `true`. The concurrent-send guarantee requires the database-backed atomic
+reservation path.
