@@ -207,6 +207,7 @@ function toOtpIdentifier(type: OtpType, email: string): string {
 // plugins can use their own code formats.
 // oxlint-disable-next-line typescript/explicit-function-return-type -- typed by the plugin's inferred `hooks.before` element.
 function createOtpShapeGuard(otpLength: number, allowAnyFormat: boolean) {
+  const nonEmptyOtpBodySchema = z.object({ otp: z.string().min(1) });
   const otpBodySchema = z.object({ otp: z.string().length(otpLength).regex(/^\d+$/) });
   return {
     matcher: (ctx: { body?: unknown; path?: string }) =>
@@ -217,6 +218,9 @@ function createOtpShapeGuard(otpLength: number, allowAnyFormat: boolean) {
         'otp' in ctx.body
       ),
     handler: createAuthMiddleware(async (ctx) => {
+      if (!nonEmptyOtpBodySchema.safeParse(ctx.body).success) {
+        throw new APIError('BAD_REQUEST', { code: 'INVALID_OTP', message: 'Invalid OTP' });
+      }
       if (allowAnyFormat) return;
       if (!otpBodySchema.safeParse(ctx.body).success) {
         throw new APIError('BAD_REQUEST', { code: 'INVALID_OTP', message: 'Invalid OTP' });

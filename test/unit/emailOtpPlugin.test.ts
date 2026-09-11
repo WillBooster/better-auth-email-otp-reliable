@@ -25,7 +25,7 @@ const createStorage = (): {
 });
 
 // oxlint-disable-next-line typescript/explicit-function-return-type -- keep Better Auth's plugin endpoint inference in the test.
-const createAuth = () =>
+const createAuth = (storage = createStorage(), generateOTP?: () => string) =>
   betterAuth({
     database: memoryAdapter({ user: [], account: [], session: [], verification: [] }),
     baseURL: 'http://localhost:3000',
@@ -35,8 +35,9 @@ const createAuth = () =>
         otpLength: OTP_LENGTH,
         expiresIn: 60,
         allowedAttempts: 5,
-        storeOTP: createStorage(),
+        storeOTP: storage,
         resendStrategy: 'reuse',
+        ...(generateOTP ? { generateOTP } : {}),
         sendVerificationOTP,
       }),
     ],
@@ -83,5 +84,21 @@ describe('reliableEmailOTP', () => {
 
     expect(sendVerificationOTP.mock.calls).toHaveLength(2);
     expect(sendVerificationOTP.mock.calls[1]?.[0].otp).toBe(sendVerificationOTP.mock.calls[0]?.[0].otp);
+  });
+
+  test('rejects an empty code when custom storage cannot decrypt it', async () => {
+    sendVerificationOTP.mockResolvedValue();
+    const auth = createAuth(
+      {
+        encrypt: async (otp: string): Promise<string> => otp,
+        decrypt: async (): Promise<string> => '',
+      },
+      () => 'CUSTOM'
+    );
+    const email = 'undecryptable@example.com';
+    await auth.api.sendVerificationOTP({ body: { email, type: 'sign-in' } });
+
+    const error = await auth.api.signInEmailOTP({ body: { email, otp: '' } }).catch((error: unknown) => error);
+    expect(error).toMatchObject({ status: 'BAD_REQUEST', body: { code: 'INVALID_OTP' } });
   });
 });
