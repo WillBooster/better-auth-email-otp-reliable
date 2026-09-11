@@ -193,10 +193,12 @@ async function resolveOtp(
     try {
       created = await ctx.context.internalAdapter.createVerificationValue(row);
     } catch (error) {
-      // A storage outage or a rejected create hook is not a competing request.
-      // Reconcile only when a row actually exists, and preserve the original error.
       const current = await ctx.context.internalAdapter.findVerificationValue(identifier);
-      if (!current) throw error;
+      if (!current) {
+        // A previously observed row can disappear while another sender replaces it.
+        if (seen && pass < 2) continue;
+        throw error;
+      }
       // A committed insertion followed by a failing create.after hook is not a conflict.
       if (current.value === row.value) throw error;
       if (options.resendStrategy === 'reuse' || current.id !== seen?.id || current.value !== seen?.value) {

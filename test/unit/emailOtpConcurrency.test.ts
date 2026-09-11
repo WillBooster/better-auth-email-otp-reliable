@@ -113,12 +113,27 @@ const createStorage = () => ({
 const createAuth = (
   options: Partial<EmailOtpPluginOptions> = {},
   databaseHooks?: BetterAuthOptions['databaseHooks'],
-  useUpstream = false
+  useUpstream = false,
+  beforeVerificationLookup?: () => Promise<void>
   // oxlint-disable-next-line typescript/explicit-function-return-type -- keep Better Auth's plugin endpoint inference in the test.
 ) =>
   betterAuth({
     databaseHooks,
-    database: drizzleAdapter(database, { provider: 'sqlite', schema: { user, account, session, verification } }),
+    database: (authOptions: BetterAuthOptions) => {
+      const adapter = drizzleAdapter(database, {
+        provider: 'sqlite',
+        schema: { user, account, session, verification },
+      })(authOptions);
+      return {
+        ...adapter,
+        async findMany<T>(args: Parameters<typeof adapter.findMany>[0]): Promise<T[]> {
+          if (args.model === 'verification' && args.where?.some(({ field }) => field === 'identifier')) {
+            await beforeVerificationLookup?.();
+          }
+          return adapter.findMany<T>(args);
+        },
+      };
+    },
     baseURL: 'http://localhost:3000',
     secret: SECRET,
     advanced: { database: { generateId: 'serial' } },
@@ -141,6 +156,55 @@ afterEach(() => {
 });
 
 describe('reliableEmailOTP with a real SQLite adapter', () => {
+  test('reconciles a conflicting send while another request is between deletion and insertion', async () => {
+    sendVerificationOTP.mockResolvedValue();
+    const email = 'replacement-gap@example.com';
+    await createAuth().api.sendVerificationOTP({ body: { email, type: 'sign-in' } });
+    sendVerificationOTP.mockClear();
+    const lookupPaused = Promise.withResolvers<void>();
+    const resumeLookup = Promise.withResolvers<void>();
+    const insertPaused = Promise.withResolvers<void>();
+    const resumeInsert = Promise.withResolvers<void>();
+    let lookups = 0;
+    const authB = createAuth({ resendStrategy: 'rotate' }, undefined, false, async () => {
+      if (++lookups === 2) {
+        lookupPaused.resolve();
+        await resumeLookup.promise;
+      }
+    });
+    let inserts = 0;
+    const authA = createAuth(
+      { resendStrategy: 'rotate' },
+      {
+        verification: {
+          create: {
+            before: async () => {
+              if (++inserts === 2) {
+                insertPaused.resolve();
+                await resumeInsert.promise;
+              }
+            },
+          },
+        },
+      }
+    );
+    const sendingB = authB.api.sendVerificationOTP({ body: { email, type: 'sign-in' } });
+    await lookupPaused.promise;
+    const sendingA = authA.api.sendVerificationOTP({ body: { email, type: 'sign-in' } });
+    await insertPaused.promise;
+    resumeLookup.resolve();
+    try {
+      await expect(sendingB).resolves.toEqual({ success: true });
+    } finally {
+      resumeInsert.resolve();
+      await sendingA;
+    }
+    expect(sendVerificationOTP.mock.calls).toHaveLength(2);
+    const otp = sendVerificationOTP.mock.calls[0]![0].otp;
+    expect(sendVerificationOTP.mock.calls[1]![0].otp).toBe(otp);
+    await expect(authA.api.signInEmailOTP({ body: { email, otp } })).resolves.toMatchObject({ user: { email } });
+  });
+
   test('reuses a pending code issued by the upstream plugin before migration', async () => {
     sendVerificationOTP.mockResolvedValue();
     const email = 'migration@example.com';
