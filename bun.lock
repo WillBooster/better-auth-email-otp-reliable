@@ -29,7 +29,7 @@
         "vitest": "4.1.11",
       },
       "peerDependencies": {
-        "better-auth": ">=1.6.29",
+        "better-auth": ">=1.6.29 <1.7.0",
         "zod": "4.5.4",
       },
     },
