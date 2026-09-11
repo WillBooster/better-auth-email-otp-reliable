@@ -1,0 +1,39 @@
+glob_matcher: doublestar
+post-merge:
+  jobs:
+    - name: prepare
+      script: prepare.sh
+      runner: bash
+pre-push:
+  jobs:
+    - name: check
+      script: check.sh
+      runner: bash
+pre-commit:
+  jobs:
+    - name: cleanup
+      glob: '**/*.{java}'
+      run: |-
+        package_json_files="$(printf '%s\n' {staged_files} | grep -E '(^|/)package\.json$' || true)"
+
+
+
+        if [ -n "$package_json_files" ]; then
+          bun sort-package-json $package_json_files
+        fi
+      stage_fixed: true
+    - name: check-migrations
+      glob: '**/migration.sql'
+      run: |-
+        failed=0
+        for file in {staged_files}; do
+          if grep -q 'Warnings:' "$file"; then
+            echo "Migration SQL file ($file) contains warnings! Please solve the warnings and commit again."
+            failed=1
+          fi
+        done
+        exit "$failed"
+    - name: normalize-bun-lockfile
+      glob: bun.lock
+      run: bash .lefthook/normalize-bun-lockfile.sh {staged_files}
+      stage_fixed: true
