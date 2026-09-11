@@ -200,8 +200,8 @@ async function resolveOtp(
       if (!isUniqueConstraintError(error)) throw error;
       const current = await ctx.context.internalAdapter.findVerificationValue(identifier);
       if (!current) {
-        // A previously observed row can disappear while another sender replaces it.
-        if (seen && pass < 2) continue;
+        // The conflicting row can disappear before this request ever reads it.
+        if (pass < 2) continue;
         throw error;
       }
       // A committed insertion followed by a failing create.after hook is not a conflict.

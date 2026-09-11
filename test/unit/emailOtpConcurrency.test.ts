@@ -188,22 +188,37 @@ describe('reliableEmailOTP with a real SQLite adapter', () => {
     await expect(auth.api.signInEmailOTP({ body: { email, otp } })).resolves.toMatchObject({ user: { email } });
   });
 
-  test('reconciles a conflicting send while another request is between deletion and insertion', async () => {
+  test.each([true, false])('reconciles a replacement gap (code existed initially: %s)', async (codeExisted) => {
     sendVerificationOTP.mockResolvedValue();
     const email = 'replacement-gap@example.com';
-    await createAuth().api.sendVerificationOTP({ body: { email, type: 'sign-in' } });
-    sendVerificationOTP.mockClear();
+    if (codeExisted) await createAuth().api.sendVerificationOTP({ body: { email, type: 'sign-in' } });
+    const initialLookupComplete = Promise.withResolvers<void>();
+    const startInsert = Promise.withResolvers<void>();
     const lookupPaused = Promise.withResolvers<void>();
     const resumeLookup = Promise.withResolvers<void>();
     const insertPaused = Promise.withResolvers<void>();
     const resumeInsert = Promise.withResolvers<void>();
     let lookups = 0;
-    const authB = createAuth({ resendStrategy: 'rotate' }, undefined, false, async () => {
-      if (++lookups === 2) {
-        lookupPaused.resolve();
-        await resumeLookup.promise;
+    const authB = createAuth(
+      { resendStrategy: 'rotate' },
+      {
+        verification: {
+          create: {
+            before: async () => {
+              initialLookupComplete.resolve();
+              await startInsert.promise;
+            },
+          },
+        },
+      },
+      false,
+      async () => {
+        if (++lookups === 2) {
+          lookupPaused.resolve();
+          await resumeLookup.promise;
+        }
       }
-    });
+    );
     let inserts = 0;
     const authA = createAuth(
       { resendStrategy: 'rotate' },
@@ -221,6 +236,10 @@ describe('reliableEmailOTP with a real SQLite adapter', () => {
       }
     );
     const sendingB = authB.api.sendVerificationOTP({ body: { email, type: 'sign-in' } });
+    await initialLookupComplete.promise;
+    if (!codeExisted) await createAuth().api.sendVerificationOTP({ body: { email, type: 'sign-in' } });
+    sendVerificationOTP.mockClear();
+    startInsert.resolve();
     await lookupPaused.promise;
     const sendingA = authA.api.sendVerificationOTP({ body: { email, type: 'sign-in' } });
     await insertPaused.promise;
