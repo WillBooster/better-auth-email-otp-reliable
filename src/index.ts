@@ -1,1 +1,1 @@
-
+export type ReliableEmailOTPPlugin = never;
