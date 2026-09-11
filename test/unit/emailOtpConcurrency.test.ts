@@ -192,16 +192,25 @@ describe('reliableEmailOTP with a real SQLite adapter', () => {
     await expect(authA.api.signInEmailOTP({ body: { email, otp } })).resolves.toMatchObject({ user: { email } });
   });
 
-  test('reuses a pending code issued by the upstream plugin before migration', async () => {
-    sendVerificationOTP.mockResolvedValue();
-    const email = 'migration@example.com';
-    const legacy = createAuth({}, undefined, true);
-    const otp = await legacy.api.createVerificationOTP({ body: { email, type: 'sign-in' } });
-    const auth = createAuth();
-    await auth.api.sendVerificationOTP({ body: { email, type: 'sign-in' } });
-    expect(sendVerificationOTP.mock.calls[0]![0].otp).toBe(otp);
-    await expect(auth.api.signInEmailOTP({ body: { email, otp } })).resolves.toMatchObject({ user: { email } });
-  });
+  test.each(['', 'reliable-email-otp:v1:'])(
+    'reuses an upstream code with legacy ciphertext prefix %s',
+    async (prefix) => {
+      sendVerificationOTP.mockResolvedValue();
+      const email = 'migration@example.com';
+      const options = {
+        storeOTP: {
+          encrypt: async (value: string) => `${prefix}${value}`,
+          decrypt: async (value: string) => (value.startsWith(prefix) ? value.slice(prefix.length) : ''),
+        },
+      };
+      const legacy = createAuth(options, undefined, true);
+      const otp = await legacy.api.createVerificationOTP({ body: { email, type: 'sign-in' } });
+      const auth = createAuth(options);
+      await auth.api.sendVerificationOTP({ body: { email, type: 'sign-in' } });
+      expect(sendVerificationOTP.mock.calls[0]![0].otp).toBe(otp);
+      await expect(auth.api.signInEmailOTP({ body: { email, otp } })).resolves.toMatchObject({ user: { email } });
+    }
+  );
 
   test('propagates verification creation hook failures without delivering a code', async () => {
     sendVerificationOTP.mockResolvedValue();

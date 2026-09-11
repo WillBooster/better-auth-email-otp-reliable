@@ -33,7 +33,7 @@ export const FAILED_TO_SEND_EMAIL = 'FAILED_TO_SEND_EMAIL';
 const deliveryError = { code: FAILED_TO_SEND_EMAIL, message: 'Failed to send the verification email' } as const;
 
 const STORAGE_PREFIX = 'reliable-email-otp:v1:';
-const storedOtpSchema = z.tuple([z.string(), z.string()]);
+const storedOtpSchema = z.tuple([z.uuid(), z.string()]);
 
 const sendVerificationOtpBodySchema = z.object({
   email: z.string().meta({ description: 'Email address to send the OTP' }),
@@ -138,16 +138,23 @@ function createOtpStorage(storage: OtpStorage): OtpStorage {
     },
     async decrypt(value) {
       try {
-        const ciphertext = value.startsWith(STORAGE_PREFIX)
-          ? storedOtpSchema.parse(JSON.parse(value.slice(STORAGE_PREFIX.length)))[1]
-          : value;
-        return await storage.decrypt(ciphertext);
+        return await storage.decrypt(unwrapStoredOtp(value));
       } catch {
         // Pending codes from a previous encryption key must fail closed and be replaceable.
         return '';
       }
     },
   };
+}
+
+function unwrapStoredOtp(value: string): string {
+  if (!value.startsWith(STORAGE_PREFIX)) return value;
+  try {
+    return storedOtpSchema.parse(JSON.parse(value.slice(STORAGE_PREFIX.length)))[1];
+  } catch {
+    // A prefix alone does not distinguish legacy ciphertext from a versioned envelope.
+    return value;
+  }
 }
 
 // Keep the upstream path so the client plugin and rate-limit rules continue to match.

@@ -19,6 +19,7 @@ test('D1 concurrent sends and rotations deliver a code that signs in', async () 
     );
     const sent: string[] = [];
     let nextOtp = 10_000_000;
+    let beforeEncrypt = createPairBarrier();
     const auth = betterAuth({
       database: drizzleAdapter(drizzle(database), { provider: 'sqlite', schema }),
       baseURL: 'http://localhost:3000',
@@ -31,7 +32,13 @@ test('D1 concurrent sends and rotations deliver a code that signs in', async () 
           allowedAttempts: 5,
           resendStrategy: 'rotate',
           generateOTP: () => String(nextOtp++),
-          storeOTP: { encrypt: async (value) => value, decrypt: async (value) => value },
+          storeOTP: {
+            encrypt: async (value) => {
+              await beforeEncrypt();
+              return value;
+            },
+            decrypt: async (value) => value,
+          },
           sendVerificationOTP: async ({ otp }) => {
             sent.push(otp);
           },
@@ -46,6 +53,7 @@ test('D1 concurrent sends and rotations deliver a code that signs in', async () 
     expect(sent[1]).toBe(sent[0]);
     const original = sent[0];
     sent.length = 0;
+    beforeEncrypt = createPairBarrier();
     await Promise.all(
       Array.from({ length: 2 }, () => auth.api.sendVerificationOTP({ body: { email, type: 'sign-in' } }))
     );
@@ -59,3 +67,12 @@ test('D1 concurrent sends and rotations deliver a code that signs in', async () 
     await worker.dispose();
   }
 }, 30_000);
+
+function createPairBarrier(): () => Promise<void> {
+  const ready = Promise.withResolvers<void>();
+  let arrivals = 0;
+  return async () => {
+    if (++arrivals === 2) ready.resolve();
+    await ready.promise;
+  };
+}

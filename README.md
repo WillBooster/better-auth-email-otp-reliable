@@ -48,7 +48,10 @@ sender must return the delivery promise and reject on failure. Custom storage
 must encrypt codes in a recoverable format; decryption failures are treated as
 unusable codes. Stored ciphertext is wrapped with a per-insertion random identifier
 so creation-hook failures can be distinguished from competing inserts, even with
-fixed codes. Existing unwrapped ciphertext remains readable. Empty submissions are
+fixed codes. Legacy ciphertext is passed unchanged to the decryptor unless it
+matches the complete envelope: `reliable-email-otp:v1:` followed by a JSON
+`[UUID, ciphertext]` tuple. Legacy formats already producing that complete envelope
+need explicit migration; a matching prefix alone remains readable. Empty submissions are
 rejected before verification. Supply
 `generateOTP` to use a custom nonempty code format, including fixed codes in local
 tests. Numeric options must be positive integers.
