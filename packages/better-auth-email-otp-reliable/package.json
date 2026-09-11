@@ -26,7 +26,9 @@
   "main": "dist/index.cjs",
   "module": "dist/index.js",
   "types": "dist/index.d.ts",
-  "files": ["dist/"],
+  "files": [
+    "dist/"
+  ],
   "scripts": {
     "build": "build-ts lib",
     "cleanup": "bun wb lint --fix --format",
@@ -38,19 +40,18 @@
     "verify": "bun wb verify",
     "verify-full": "bun wb verify --full"
   },
-  "peerDependencies": {
-    "better-auth": ">=1.6.0"
-  },
   "devDependencies": {
     "@willbooster/oxfmt-config": "1.2.2",
     "@willbooster/oxlint-config": "1.4.8",
-    "@willbooster/wb": "workspace:*",
+    "@willbooster/wb": "22.1.4",
     "build-ts": "21.0.12",
     "oxfmt": "0.65.0",
     "oxlint": "1.80.0",
     "oxlint-tsgolint": "7.0.2001",
-    "typescript": "7.0.2",
     "vitest": "4.1.11"
+  },
+  "peerDependencies": {
+    "better-auth": ">=1.6.0"
   },
   "publishConfig": {
     "access": "public",
