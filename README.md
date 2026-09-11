@@ -12,3 +12,7 @@ to the caller.
 When Better Auth secondary storage is configured, set `verification.storeInDatabase`
 to `true`. The concurrent-send guarantee requires the database-backed atomic
 reservation path.
+
+The atomic reservation and row replacement paths do not invoke Better Auth's
+verification database hooks. Applications that depend on those hooks should
+track [issue #6](https://github.com/WillBooster/better-auth-email-otp-reliable/issues/6).
