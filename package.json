@@ -38,6 +38,7 @@
     "release": "wb release",
     "test": "bun wb test",
     "test/ci": "bun wb test-on-ci",
+    "test/ci-compatibility": "bun run test/ci && bun add --dev --exact --ignore-scripts better-auth@1.6.29 && bun run typecheck && bun run test/ci && bun run build",
     "typecheck": "bun wb typecheck",
     "verify": "bun wb verify",
     "verify-full": "bun wb verify --full"
