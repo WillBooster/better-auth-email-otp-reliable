@@ -77,19 +77,19 @@ export function reliableEmailOTP(options: EmailOtpPluginOptions): EmailOtpPlugin
   ]) {
     z.number().int().positive().parse(value);
   }
-  const { generateOTP, ...otherOptions } = options;
+  const { generateOTP, resendStrategy, ...otherOptions } = options;
   const creationFailures: CreationFailures = new WeakMap();
-  const resolved = {
+  const sharedOptions = {
     ...otherOptions,
     ...(generateOTP ? { generateOTP } : {}),
-    resendStrategy: options.resendStrategy ?? 'reuse',
+    ...(resendStrategy ? { resendStrategy } : {}),
     storeOTP: createOtpStorage(options.storeOTP),
     disableSignUp: false,
     overrideDefaultEmailVerification: false,
     sendVerificationOnSignUp: false,
     changeEmail: { enabled: false },
   };
-  const base = emailOTP(resolved);
+  const base = emailOTP(sharedOptions);
   return {
     ...base,
     $ERROR_CODES: { ...base.$ERROR_CODES, FAILED_TO_SEND_EMAIL: deliveryError },
@@ -99,7 +99,10 @@ export function reliableEmailOTP(options: EmailOtpPluginOptions): EmailOtpPlugin
     },
     endpoints: {
       ...base.endpoints,
-      sendVerificationOTP: createSendVerificationOtpEndpoint(resolved, creationFailures),
+      sendVerificationOTP: createSendVerificationOtpEndpoint(
+        { ...sharedOptions, resendStrategy: resendStrategy ?? 'reuse' },
+        creationFailures
+      ),
     },
     hooks: {
       ...base.hooks,

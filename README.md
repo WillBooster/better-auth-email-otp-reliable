@@ -7,7 +7,7 @@ Reliable email OTP sign-in for [Better Auth](https://www.better-auth.com/), extr
 for Exercode and prompt-study. New addresses are registered automatically on
 successful sign-in.
 
-Concurrent send requests share a usable code. Resends reuse the pending code and
+Concurrent send requests share a usable code. Sign-in resends reuse the pending code and
 extend its expiry by default, without resetting failed attempts. Expired,
 exhausted, or undecryptable codes are replaced. The sender is always awaited,
 including when Better Auth has a background task handler: a rejected send returns
@@ -59,6 +59,9 @@ tests. Numeric options must be positive integers.
 `resendStrategy: 'rotate'` explicitly replaces a code on a new send request;
 concurrent insert conflicts still share the winning code. Prefer the default
 `'reuse'` so delayed emails stay useful.
+
+The reuse default applies to the overridden sign-in sender. Retained upstream
+endpoints use their upstream defaults unless `resendStrategy` is explicitly supplied.
 
 Once a replacement is stored, a later creation-hook or delivery failure does not
 restore the old code: a concurrent sender may already have delivered the replacement.

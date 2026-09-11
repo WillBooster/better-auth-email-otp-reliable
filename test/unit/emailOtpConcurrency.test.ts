@@ -69,6 +69,29 @@ afterEach(() => {
 });
 
 describe('reliableEmailOTP with a real SQLite adapter', () => {
+  test('retains upstream password-reset rotation when no resend strategy is supplied', async () => {
+    sendVerificationOTP.mockResolvedValue();
+    let nextOtp = 10_000_000;
+    const auth = createAuth({ generateOTP: () => String(nextOtp++) });
+    const email = 'password-reset@example.com';
+    await auth.api.sendVerificationOTP({ body: { email, type: 'sign-in' } });
+    await auth.api.signInEmailOTP({ body: { email, otp: sendVerificationOTP.mock.calls[0]![0].otp } });
+    sendVerificationOTP.mockClear();
+    await auth.api.requestPasswordResetEmailOTP({ body: { email } });
+    await auth.api.requestPasswordResetEmailOTP({ body: { email } });
+    const first = sendVerificationOTP.mock.calls[0]![0].otp;
+    const second = sendVerificationOTP.mock.calls[1]![0].otp;
+    expect(second).not.toBe(first);
+    await expect(
+      auth.api.checkVerificationOTP({ body: { email, type: 'forget-password', otp: first } })
+    ).rejects.toMatchObject({
+      body: { code: 'INVALID_OTP' },
+    });
+    await expect(
+      auth.api.checkVerificationOTP({ body: { email, type: 'forget-password', otp: second } })
+    ).resolves.toEqual({ success: true });
+  });
+
   test('does not issue or deliver OTPs when another plugin enables secondary storage', async () => {
     sendVerificationOTP.mockResolvedValue();
     const cache = new Map<string, string>();
