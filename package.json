@@ -52,7 +52,7 @@
     "@types/node": "26.4.0",
     "@willbooster/oxfmt-config": "1.2.2",
     "@willbooster/oxlint-config": "1.4.8",
-    "@willbooster/wb": "22.6.0",
+    "@willbooster/wb": "22.7.0",
     "better-auth": "1.7.2",
     "better-sqlite3": "12.4.1",
     "build-ts": "21.0.16",
