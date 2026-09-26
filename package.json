@@ -52,14 +52,14 @@
     "@types/node": "26.6.2",
     "@willbooster/oxfmt-config": "1.2.2",
     "@willbooster/oxlint-config": "1.4.8",
-    "@willbooster/wb": "22.7.0",
+    "@willbooster/wb": "22.8.0",
     "better-auth": "1.7.5",
-    "better-sqlite3": "12.4.1",
+    "better-sqlite3": "12.11.1",
     "build-ts": "21.0.16",
     "conventional-changelog-conventionalcommits": "10.4.0",
     "drizzle-orm": "0.45.2",
     "lefthook": "2.1.14",
-    "miniflare": "4.20260722.1",
+    "miniflare": "4.20260730.0",
     "oxfmt": "0.68.0",
     "oxlint": "1.83.0",
     "oxlint-tsgolint": "7.0.2002",
@@ -70,7 +70,7 @@
   },
   "peerDependencies": {
     "better-auth": ">=1.6.29 <1.8.0",
-    "zod": "4.5.4"
+    "zod": "4.6.5"
   },
   "engines": {
     "node": ">=24"
