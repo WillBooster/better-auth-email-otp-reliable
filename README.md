@@ -6,9 +6,8 @@
 [![semantic-release](https://img.shields.io/badge/%20%20%F0%9F%93%A6%F0%9F%9A%80-semantic--release-e10079.svg)](https://github.com/semantic-release/semantic-release)
 [![wbfy](https://img.shields.io/badge/wbfy-20.23.1-1e90ff.svg)](https://github.com/WillBooster/shared/tree/main/packages/wbfy)
 
-Reliable email OTP sign-in for [Better Auth](https://www.better-auth.com/), extracted
-for App A and App B. New addresses are registered automatically on
-successful sign-in.
+Reliable email OTP sign-in for [Better Auth](https://www.better-auth.com/). New
+addresses are registered automatically on successful sign-in.
 
 Concurrent send requests share a usable code. Sign-in resends reuse the pending code and
 extend its expiry by default, without resetting failed attempts. Expired,
@@ -73,8 +72,7 @@ The request still reports the error, and a retry can issue or deliver a usable c
 ## Database contract
 
 The `verification.identifier` column **must have a database UNIQUE constraint**.
-The existing App A and App B schemas already provide it. Better Auth's
-standard schema alone does not. For a new integration, deduplicate any existing
+Better Auth's standard schema alone does not provide it. Deduplicate any existing
 rows and add a unique index using your normal migration workflow before enabling
 the plugin. Serial and string primary keys are supported; row IDs must not be
 reused after deletion. Better Auth's memory adapter is suitable only for basic
@@ -117,12 +115,11 @@ not serialized by this package, and provider acceptance does not guarantee inbox
 delivery.
 
 The package depends on Better Auth's internal verification format and adapter
-behavior. Compatibility is tested with Better Auth 1.6.29 (App B) and 1.7.2
-(App A); the peer range excludes 1.8 and later until those contracts are reviewed.
-The development dependency follows App A's 1.7.2. CI checks that locked version,
-then installs 1.6.29 in its disposable checkout and repeats type checking, tests,
-and the build. Tests exercise actual HTTP sign-in,
-delivery failure recovery, and real SQLite concurrency with the applications'
+behavior. The peer range excludes 1.8 and later until those contracts are reviewed.
+CI checks the locked development version, then installs the minimum supported
+1.6.29 in its disposable checkout and repeats type checking, tests, and the build.
+Tests exercise actual HTTP sign-in,
+delivery failure recovery, and real SQLite concurrency with a
 serial-ID and unique-identifier schema, plus D1 concurrency through Miniflare's
 actual Workers runtime. Run `bun run verify-full` and `bun run build`
 when changing the package.
