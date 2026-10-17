@@ -62,7 +62,7 @@
     "miniflare": "4.20260730.0",
     "oxfmt": "0.72.0",
     "oxlint": "1.87.0",
-    "oxlint-tsgolint": "7.0.2003",
+    "oxlint-tsgolint": "7.0.2004",
     "semantic-release": "25.0.9",
     "sort-package-json": "4.0.0",
     "typescript": "7.0.2",
