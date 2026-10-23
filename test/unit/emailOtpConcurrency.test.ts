@@ -1,4 +1,4 @@
-import { type BetterAuthOptions, betterAuth } from 'better-auth';
+import { betterAuth, type BetterAuthOptions } from 'better-auth';
 import { drizzleAdapter } from 'better-auth/adapters/drizzle';
 import { emailOTP } from 'better-auth/plugins';
 import Database from 'better-sqlite3';
