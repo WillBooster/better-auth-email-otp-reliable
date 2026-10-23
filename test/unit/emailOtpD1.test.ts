@@ -1,4 +1,4 @@
-import { type BetterAuthOptions, betterAuth } from 'better-auth';
+import { betterAuth, type BetterAuthOptions } from 'better-auth';
 import { drizzleAdapter } from 'better-auth/adapters/drizzle';
 import { drizzle } from 'drizzle-orm/d1';
 import { Miniflare } from 'miniflare';
