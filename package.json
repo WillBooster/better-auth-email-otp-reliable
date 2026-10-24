@@ -58,7 +58,7 @@
     "@willbooster/wb": "22.29.3",
     "better-auth": "1.7.10",
     "better-sqlite3": "13.0.3",
-    "build-ts": "21.0.27",
+    "build-ts": "21.0.29",
     "conventional-changelog-conventionalcommits": "10.4.1",
     "drizzle-orm": "0.45.4",
     "lefthook": "2.2.2",
