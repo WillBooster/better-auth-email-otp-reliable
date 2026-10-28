@@ -43,6 +43,10 @@ const sendVerificationOtpBodySchema = z.object({
 type BaseEmailOtpPlugin = ReturnType<typeof emailOTP>;
 type PluginContext = Parameters<NonNullable<BaseEmailOtpPlugin['init']>>[0];
 type CreationFailures = WeakMap<object, string>;
+interface StoredOtp {
+  id: string;
+  value: string;
+}
 type SendVerificationOtpEndpoint = ReturnType<
   typeof createAuthEndpoint<
     '/email-otp/send-verification-otp',
@@ -222,7 +226,7 @@ function createSendVerificationOtpEndpoint(
       if (!z.email().safeParse(email).success) {
         throw new APIError('BAD_REQUEST', { code: 'INVALID_EMAIL', message: 'Invalid email' });
       }
-      const otp = await resolveOtp(ctx, options, email, ctx.body.type, creationFailures);
+      const { otp, created } = await resolveOtp(ctx, options, email, ctx.body.type, creationFailures);
 
       // Awaited directly: upstream routes this through a helper that swallows the error and reports
       // success, leaving the user waiting for an email that never left. Every failure maps to the
@@ -231,6 +235,8 @@ function createSendVerificationOtpEndpoint(
         await options.sendVerificationOTP({ email, otp, type: ctx.body.type }, ctx);
       } catch (error) {
         ctx.context.logger.error('Failed to send the verification email', error);
+        // A reused code may already be in an earlier email, so only a code created here is withdrawn.
+        if (created) await deleteUndeliveredOtp(ctx, created);
         throw new APIError('SERVICE_UNAVAILABLE', deliveryError);
       }
       return ctx.json({ success: true });
@@ -238,10 +244,26 @@ function createSendVerificationOtpEndpoint(
   );
 }
 
+async function deleteUndeliveredOtp(ctx: EndpointContext, created: StoredOtp): Promise<void> {
+  try {
+    // Matching the value as well keeps a newer row stored by a concurrent request.
+    await ctx.context.adapter.delete({
+      model: 'verification',
+      where: [
+        { field: 'id', value: created.id },
+        { field: 'value', value: created.value },
+      ],
+    });
+  } catch (error) {
+    ctx.context.logger.error('Failed to delete the undelivered verification code', error);
+  }
+}
+
 /**
  * Resolves the code to send: the pending one when the resend strategy allows delivering it again,
  * otherwise a new one. When storing a new code loses to a concurrent request, that request's code
- * is delivered instead so that both emails carry a code that works.
+ * is delivered instead so that both emails carry a code that works. `created` is set only when this
+ * request stored the code.
  */
 async function resolveOtp(
   ctx: EndpointContext,
@@ -249,13 +271,13 @@ async function resolveOtp(
   email: string,
   type: OtpType,
   creationFailures: CreationFailures
-): Promise<string> {
+): Promise<{ otp: string; created?: StoredOtp }> {
   const identifier = toOtpIdentifier(type, email);
 
   let seen = await ctx.context.internalAdapter.findVerificationValue(identifier);
   if (seen && options.resendStrategy === 'reuse') {
     const reused = await reusePendingOtp(ctx, options, seen);
-    if (reused) return reused;
+    if (reused) return { otp: reused };
   }
 
   const otp = options.generateOTP?.({ email, type }, ctx) || generateRandomString(options.otpLength, '0-9');
@@ -285,7 +307,7 @@ async function resolveOtp(
       if (current.value === row.value) throw error;
       if (options.resendStrategy === 'reuse' || current.id !== seen?.id || current.value !== seen?.value) {
         const concurrent = await reusePendingOtp(ctx, options, current);
-        if (concurrent) return concurrent;
+        if (concurrent) return { otp: concurrent };
       }
       if (pass >= 2) {
         throw error;
@@ -304,7 +326,7 @@ async function resolveOtp(
       continue;
     }
     if (!created) throw new Error('Verification creation was rejected');
-    return otp;
+    return { otp, created };
   }
 }
 
@@ -312,7 +334,7 @@ async function resolveOtp(
 async function reusePendingOtp(
   ctx: EndpointContext,
   options: EmailOtpPluginOptions,
-  pending: { id: string; value: string; expiresAt: Date }
+  pending: StoredOtp & { expiresAt: Date }
 ): Promise<string | undefined> {
   if (pending.expiresAt <= new Date()) return undefined;
 

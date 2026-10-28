@@ -63,21 +63,36 @@ describe('reliableEmailOTP', () => {
     });
   });
 
-  test('reports a failed send to the caller', async () => {
+  test('reports a failed send to the caller and withdraws the undelivered code', async () => {
     sendVerificationOTP.mockRejectedValueOnce(new Error('SMTP unavailable')).mockResolvedValue();
     const auth = createAuth();
+    const email = 'user@example.com';
 
     const error = await auth.api
-      .sendVerificationOTP({ body: { email: 'user@example.com', type: 'sign-in' } })
+      .sendVerificationOTP({ body: { email, type: 'sign-in' } })
       .catch((error: unknown) => error);
     expect(error).toBeInstanceOf(APIError);
     expect(error).toMatchObject({ status: 'SERVICE_UNAVAILABLE', body: { code: FAILED_TO_SEND_EMAIL } });
-    await auth.api.sendVerificationOTP({ body: { email: 'user@example.com', type: 'sign-in' } });
+    const undeliveredOtp = sendVerificationOTP.mock.calls[0]![0].otp;
+    await expect(auth.api.signInEmailOTP({ body: { email, otp: undeliveredOtp } })).rejects.toBeInstanceOf(APIError);
+
+    await auth.api.sendVerificationOTP({ body: { email, type: 'sign-in' } });
     const otp = sendVerificationOTP.mock.calls[1]![0].otp;
-    expect(otp).toBe(sendVerificationOTP.mock.calls[0]![0].otp);
-    await expect(auth.api.signInEmailOTP({ body: { email: 'user@example.com', otp } })).resolves.toMatchObject({
-      user: { email: 'user@example.com' },
+    await expect(auth.api.signInEmailOTP({ body: { email, otp } })).resolves.toMatchObject({ user: { email } });
+  });
+
+  test('keeps a previously emailed code usable when resending it fails', async () => {
+    sendVerificationOTP.mockResolvedValueOnce().mockRejectedValueOnce(new Error('SMTP unavailable'));
+    const auth = createAuth();
+    const email = 'user@example.com';
+
+    await auth.api.sendVerificationOTP({ body: { email, type: 'sign-in' } });
+    await expect(auth.api.sendVerificationOTP({ body: { email, type: 'sign-in' } })).rejects.toMatchObject({
+      body: { code: FAILED_TO_SEND_EMAIL },
     });
+    const otp = sendVerificationOTP.mock.calls[0]![0].otp;
+    expect(sendVerificationOTP.mock.calls[1]![0].otp).toBe(otp);
+    await expect(auth.api.signInEmailOTP({ body: { email, otp } })).resolves.toMatchObject({ user: { email } });
   });
 
   test('reuses a pending code when a user resends it', async () => {
