@@ -43,6 +43,11 @@ const sendVerificationOtpBodySchema = z.object({
 type BaseEmailOtpPlugin = ReturnType<typeof emailOTP>;
 type PluginContext = Parameters<NonNullable<BaseEmailOtpPlugin['init']>>[0];
 type CreationFailures = WeakMap<object, string>;
+interface CreatedOtp {
+  /** The identifier as stored, which differs from the requested one when identifiers are hashed. */
+  identifier: string;
+  storedOtp: string;
+}
 interface StoredOtp {
   id: string;
   value: string;
@@ -236,7 +241,7 @@ function createSendVerificationOtpEndpoint(
       } catch (error) {
         ctx.context.logger.error('Failed to send the verification email', error);
         // A reused code may already be in an earlier email, so only a code created here is withdrawn.
-        if (created) await deleteUndeliveredOtp(ctx, created);
+        if (created) await deleteUndeliveredOtp(ctx, options, created);
         throw new APIError('SERVICE_UNAVAILABLE', deliveryError);
       }
       return ctx.json({ success: true });
@@ -244,14 +249,27 @@ function createSendVerificationOtpEndpoint(
   );
 }
 
-async function deleteUndeliveredOtp(ctx: EndpointContext, created: StoredOtp): Promise<void> {
+async function deleteUndeliveredOtp(
+  ctx: EndpointContext,
+  options: EmailOtpPluginOptions,
+  created: CreatedOtp
+): Promise<void> {
   try {
-    // Matching the value as well keeps a newer row stored by a concurrent request.
-    await ctx.context.adapter.delete({
+    // A wrong attempt during sending rewrites the attempt count, and sign-in even recreates the row
+    // under a new id, so match every count of this code; its random envelope ID never matches a
+    // concurrent request's row.
+    await ctx.context.adapter.deleteMany({
       model: 'verification',
       where: [
-        { field: 'id', value: created.id },
-        { field: 'value', value: created.value },
+        { field: 'identifier', value: created.identifier },
+        {
+          field: 'value',
+          operator: 'in',
+          value: Array.from(
+            { length: options.allowedAttempts + 1 },
+            (_, attempts) => `${created.storedOtp}:${attempts}`
+          ),
+        },
       ],
     });
   } catch (error) {
@@ -271,7 +289,7 @@ async function resolveOtp(
   email: string,
   type: OtpType,
   creationFailures: CreationFailures
-): Promise<{ otp: string; created?: StoredOtp }> {
+): Promise<{ otp: string; created?: CreatedOtp }> {
   const identifier = toOtpIdentifier(type, email);
 
   let seen = await ctx.context.internalAdapter.findVerificationValue(identifier);
@@ -281,7 +299,8 @@ async function resolveOtp(
   }
 
   const otp = options.generateOTP?.({ email, type }, ctx) || generateRandomString(options.otpLength, '0-9');
-  const row = { identifier, value: `${await options.storeOTP.encrypt(otp)}:0`, expiresAt: expiresAt(options) };
+  const storedOtp = await options.storeOTP.encrypt(otp);
+  const row = { identifier, value: `${storedOtp}:0`, expiresAt: expiresAt(options) };
 
   // A UNIQUE constraint on verification.identifier is the cross-process arbitration point.
   // Let Better Auth assign row IDs, including serial IDs used by existing applications.
@@ -326,7 +345,7 @@ async function resolveOtp(
       continue;
     }
     if (!created) throw new Error('Verification creation was rejected');
-    return { otp, created };
+    return { otp, created: { identifier: created.identifier, storedOtp } };
   }
 }
 

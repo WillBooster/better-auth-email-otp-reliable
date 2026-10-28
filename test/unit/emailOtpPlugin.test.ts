@@ -81,6 +81,33 @@ describe('reliableEmailOTP', () => {
     await expect(auth.api.signInEmailOTP({ body: { email, otp } })).resolves.toMatchObject({ user: { email } });
   });
 
+  test.each([
+    {
+      endpoint: 'checkVerificationOTP',
+      attempt: (auth: ReturnType<typeof createAuth>, email: string, otp: string) =>
+        auth.api.checkVerificationOTP({ body: { email, type: 'sign-in', otp } }),
+    },
+    {
+      endpoint: 'signInEmailOTP',
+      attempt: (auth: ReturnType<typeof createAuth>, email: string, otp: string) =>
+        auth.api.signInEmailOTP({ body: { email, otp } }),
+    },
+  ])('withdraws the undelivered code after a wrong $endpoint attempt during sending', async ({ attempt }) => {
+    const auth = createAuth();
+    const email = 'user@example.com';
+    sendVerificationOTP.mockImplementationOnce(async ({ otp }) => {
+      const wrongOtp = otp.replace(/^\d/, (digit) => String((Number(digit) + 1) % 10));
+      await expect(attempt(auth, email, wrongOtp)).rejects.toMatchObject({ body: { code: 'INVALID_OTP' } });
+      throw new Error('SMTP unavailable');
+    });
+
+    await expect(auth.api.sendVerificationOTP({ body: { email, type: 'sign-in' } })).rejects.toMatchObject({
+      body: { code: FAILED_TO_SEND_EMAIL },
+    });
+    const undeliveredOtp = sendVerificationOTP.mock.calls[0]![0].otp;
+    await expect(auth.api.signInEmailOTP({ body: { email, otp: undeliveredOtp } })).rejects.toBeInstanceOf(APIError);
+  });
+
   test('keeps a previously emailed code usable when resending it fails', async () => {
     sendVerificationOTP.mockResolvedValueOnce().mockRejectedValueOnce(new Error('SMTP unavailable'));
     const auth = createAuth();
