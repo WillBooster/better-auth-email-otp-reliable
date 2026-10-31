@@ -55,7 +55,7 @@
     "@types/bun": "1.4.4",
     "@types/node": "26.6.5",
     "@willbooster/oxlint-config": "1.4.9",
-    "@willbooster/wb": "23.0.0",
+    "@willbooster/wb": "23.0.1",
     "better-auth": "1.7.12",
     "better-sqlite3": "13.0.3",
     "build-ts": "21.0.29",
