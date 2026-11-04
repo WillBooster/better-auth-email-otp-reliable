@@ -4,7 +4,7 @@
 [![license](https://img.shields.io/npm/l/better-auth-email-otp-reliable.svg)](https://www.npmjs.com/package/better-auth-email-otp-reliable)
 [![Test](https://github.com/WillBooster/better-auth-email-otp-reliable/actions/workflows/test.yml/badge.svg)](https://github.com/WillBooster/better-auth-email-otp-reliable/actions/workflows/test.yml)
 [![semantic-release](https://img.shields.io/badge/%20%20%F0%9F%93%A6%F0%9F%9A%80-semantic--release-e10079.svg)](https://github.com/semantic-release/semantic-release)
-[![wbfy](https://img.shields.io/badge/wbfy-21.3.0-1e90ff.svg)](https://github.com/WillBooster/shared/tree/main/packages/wbfy)
+[![wbfy](https://img.shields.io/badge/wbfy-4f3ca44d--local-1e90ff.svg)](https://github.com/WillBooster/shared/tree/main/packages/wbfy)
 
 Reliable email OTP sign-in for [Better Auth](https://www.better-auth.com/). New
 addresses are registered automatically on successful sign-in.
@@ -115,9 +115,10 @@ not serialized by this package, and provider acceptance does not guarantee inbox
 delivery.
 
 The package depends on Better Auth's internal verification format and adapter
-behavior. The peer range excludes 1.8 and later until those contracts are reviewed.
+behavior. Better Auth 1.7.16 or later in the 1.7 series is required. The peer range
+excludes 1.8 and later until those contracts are reviewed.
 CI checks the locked development version, then installs the minimum supported
-1.6.29 in its disposable checkout and repeats type checking, tests, and the build.
+1.7.16 in its disposable checkout and repeats type checking, tests, and the build.
 Tests exercise actual HTTP sign-in,
 delivery failure recovery, and real SQLite concurrency with a
 serial-ID and unique-identifier schema, plus D1 concurrency through Miniflare's
