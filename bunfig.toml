@@ -86,19 +86,6 @@ minimumReleaseAgeExcludes = [
   "vinext-progress",
   "wbfy",
   "yarn-plugin-auto-install",
-  "better-auth",
-  "@better-auth/core",
-  "@better-auth/cimd",
-  "@better-auth/drizzle-adapter",
-  "@better-auth/kysely-adapter",
-  "@better-auth/mcp",
-  "@better-auth/memory-adapter",
-  "@better-auth/mongo-adapter",
-  "@better-auth/oauth-provider",
-  "@better-auth/passkey",
-  "@better-auth/prisma-adapter",
-  "@better-auth/telemetry",
-  "better-call",
 ]
 
 [fmt]
